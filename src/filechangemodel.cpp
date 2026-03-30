@@ -27,8 +27,8 @@
  * @param type 変更タイプ (Created, Deleted, Modifiedなど)
  * @param parent 親アイテムへのポインタ
  */
-FileChangeItem::FileChangeItem(const QString &path, ChangeType type, FileChangeItem *parent)
-    : m_path(path), m_changeType(type), m_parent(parent)
+FileChangeItem::FileChangeItem(const QString &path, ChangeType type, const QString &statusFlags, FileChangeItem *parent)
+    : m_path(path), m_changeType(type), m_statusFlags(statusFlags), m_parent(parent)
 {
 }
 
@@ -166,6 +166,7 @@ FileChangeModel::FileChangeModel(QObject *parent)
     , m_rootItem(nullptr)
     , m_dbusInterface(nullptr)
     , m_hasChanges(false)
+    , m_loading(false)
     , m_currentBatchIndex(0)
     , m_totalFilesCount(0)
     , m_processedFilesCount(0)
@@ -248,10 +249,10 @@ void FileChangeModel::setSnapshotNumber(int number)
 }
 
 /**
- * @brief ファイル変更リストを読み込み
+ * @brief ファイル変更リストを読み込み（非同期）
  *
- * D-Bus経由でSnapperからファイル変更リストを取得し、モデルを構築します。
- * 設定名とスナップショット番号が有効である必要があります。
+ * D-Bus経由でSnapperからファイル変更リストを非同期で取得し、モデルを構築します。
+ * 読み込み中はloadingプロパティがtrueになります。
  */
 void FileChangeModel::loadChanges()
 {
@@ -267,110 +268,210 @@ void FileChangeModel::loadChanges()
         return;
     }
 
-    // D-Bus経由でファイル変更を取得
-    QDBusReply<QString> reply = m_dbusInterface->call("GetFileChanges", m_configName, m_snapshotNumber);
+    // ローディング状態ON
+    m_loading = true;
+    emit loadingChanged();
 
-    if (!reply.isValid()) {
-        qWarning() << "Failed to get file changes via D-Bus:" << reply.error().message();
-        emit errorOccurred(QString("Failed to get file changes: %1").arg(reply.error().message()));
-        return;
-    }
+    // D-Bus経由でファイル変更を非同期取得
+    QDBusPendingCall pendingCall = m_dbusInterface->asyncCall("GetFileChanges", m_configName, m_snapshotNumber);
+    QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall, this);
 
-    QString output = reply.value();
-    if (output.isEmpty()) {
-        qWarning() << "snapper status command returned empty output";
-        m_hasChanges = false;
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
+
+        QDBusPendingReply<QString> reply = *w;
+
+        if (reply.isError()) {
+            qWarning() << "Failed to get file changes via D-Bus:" << reply.error().message();
+            m_loading = false;
+            emit loadingChanged();
+            emit errorOccurred(QString("Failed to get file changes: %1").arg(reply.error().message()));
+            return;
+        }
+
+        QString output = reply.value();
+        if (output.isEmpty()) {
+            qWarning() << "snapper status command returned empty output";
+            m_hasChanges = false;
+            emit hasChangesChanged();
+            m_loading = false;
+            emit loadingChanged();
+            emit errorOccurred("No file changes found");
+            return;
+        }
+
+        m_hasChanges = true;
         emit hasChangesChanged();
-        emit errorOccurred("No file changes found");
-        return;
-    }
 
-    m_hasChanges = true;
-    emit hasChangesChanged();
+        QStringList changes = output.split('\n', Qt::SkipEmptyParts);
 
-    QStringList changes = output.split('\n', Qt::SkipEmptyParts);
+        // 重複チェックと詳細分析
+        QSet<QString> uniquePaths;
+        QSet<QString> dirPaths;
+        QSet<QString> filePathSet;
 
-    // 重複チェックと詳細分析
-    QSet<QString> uniquePaths;
-    QSet<QString> dirPaths;
-    QSet<QString> filePaths;
+        for (const QString &line : changes) {
+            QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) {
+                QString path = parts[1];
+                QString normalizedPath = path.endsWith('/') ? path.left(path.length() - 1) : path;
 
-    for (const QString &line : changes) {
-        QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-        if (parts.size() >= 2) {
-            QString path = parts[1];
-            QString normalizedPath = path.endsWith('/') ? path.left(path.length() - 1) : path;
+                uniquePaths.insert(normalizedPath);
 
-            uniquePaths.insert(normalizedPath);
-
-            if (path.endsWith('/')) {
-                dirPaths.insert(normalizedPath);
-            } else {
-                filePaths.insert(normalizedPath);
+                if (path.endsWith('/')) {
+                    dirPaths.insert(normalizedPath);
+                } else {
+                    filePathSet.insert(normalizedPath);
+                }
             }
         }
-    }
 
-    // 親子関係を分析して、ファイルパスだがディレクトリとして扱うべきパスを特定
-    QSet<QString> pathsWithChildren;
-    for (const QString &filePath : filePaths) {
-        for (const QString &otherPath : uniquePaths) {
-            if (otherPath != filePath && otherPath.startsWith(filePath + "/")) {
-                pathsWithChildren.insert(filePath);
-                break;
+        // 親子関係を分析して、ファイルパスだがディレクトリとして扱うべきパスを特定
+        QSet<QString> pathsWithChildren;
+        for (const QString &fp : filePathSet) {
+            for (const QString &otherPath : uniquePaths) {
+                if (otherPath != fp && otherPath.startsWith(fp + "/")) {
+                    pathsWithChildren.insert(fp);
+                    break;
+                }
             }
         }
-    }
 
-    // pathsWithChildrenの情報をsetupModelDataに渡す
-    QStringList processedChanges;
-    for (const QString &line : changes) {
-        QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-        if (parts.size() >= 2) {
-            QString path = parts[1];
-            QString normalizedPath = path.endsWith('/') ? path.left(path.length() - 1) : path;
+        // pathsWithChildrenの情報をsetupModelDataに渡す
+        QStringList processedChanges;
+        for (const QString &line : changes) {
+            QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) {
+                QString path = parts[1];
+                QString normalizedPath = path.endsWith('/') ? path.left(path.length() - 1) : path;
 
-            // 子要素を持つパスの場合は、末尾にスラッシュを追加
-            if (pathsWithChildren.contains(normalizedPath) && !path.endsWith('/')) {
-                QString modifiedLine = parts[0] + " " + path + "/";
-                processedChanges.append(modifiedLine);
-            } else {
-                processedChanges.append(line);
+                // 子要素を持つパスの場合は、末尾にスラッシュを追加
+                if (pathsWithChildren.contains(normalizedPath) && !path.endsWith('/')) {
+                    QString modifiedLine = parts[0] + " " + path + "/";
+                    processedChanges.append(modifiedLine);
+                } else {
+                    processedChanges.append(line);
+                }
             }
         }
-    }
 
-    setupModelData(processedChanges);
+        setupModelData(processedChanges);
+
+        // ローディング状態OFF
+        m_loading = false;
+        emit loadingChanged();
+    });
 }
 
 /**
- * @brief ファイルの差分を取得
+ * @brief 単一ファイルを復元
  *
- * D-Bus経由で指定されたファイルの差分 (diff)を取得します。
+ * 指定されたファイルをスナップショットの状態に復元します。
  *
- * @param filePath 差分を取得したいファイルのパス
- * @return ファイルの差分内容 (失敗時は空文字列)
+ * @param filePath 復元するファイルのパス
  */
-QString FileChangeModel::getFileDiff(const QString &filePath)
+void FileChangeModel::restoreSingleFile(const QString &filePath)
 {
     if (m_configName.isEmpty() || m_snapshotNumber <= 0 || filePath.isEmpty()) {
-        return QString();
+        emit errorOccurred(tr("Invalid parameters for restore"));
+        return;
+    }
+
+    if (!m_dbusInterface || !m_dbusInterface->isValid()) {
+        emit errorOccurred(tr("D-Bus interface is not valid"));
+        return;
+    }
+
+    m_cancelRequested = false;
+    m_restoreHasError = false;
+    m_totalFilesCount = 1;
+    m_processedFilesCount = 0;
+
+    QStringList filePaths;
+    filePaths << filePath;
+
+    // 非同期でRestoreFilesを呼び出し
+    QDBusPendingCall pendingCall = m_dbusInterface->asyncCall("RestoreFiles", m_configName, m_snapshotNumber, filePaths);
+    QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall, this);
+
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher]() {
+        QDBusPendingReply<bool> reply = *watcher;
+        watcher->deleteLater();
+
+        if (reply.isError()) {
+            qWarning() << "Single file restore failed:" << reply.error().message();
+            emit errorOccurred(tr("Restore failed: %1").arg(reply.error().message()));
+            emit restoreCompleted(false);
+        } else {
+            emit restoreCompleted(reply.value());
+        }
+    });
+}
+
+/**
+ * @brief ファイルの差分と詳細情報を非同期で一括取得
+ *
+ * D-Bus経由でGetFileDiffAndDetailsを非同期呼び出しし、
+ * 結果をfileDiffAndDetailsReadyシグナルで通知します。
+ *
+ * @param filePath 対象ファイルのパス
+ */
+void FileChangeModel::getFileDiffAndDetails(const QString &filePath)
+{
+    if (m_configName.isEmpty() || m_snapshotNumber <= 0 || filePath.isEmpty()) {
+        return;
     }
 
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
         qWarning() << "D-Bus interface is not valid";
-        return QString();
+        return;
     }
 
-    // D-Bus経由でファイル差分を取得
-    QDBusReply<QString> reply = m_dbusInterface->call("GetFileDiff", m_configName, m_snapshotNumber, filePath);
+    QDBusPendingCall pendingCall = m_dbusInterface->asyncCall("GetFileDiffAndDetails", m_configName, m_snapshotNumber, filePath);
+    QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall, this);
 
-    if (!reply.isValid()) {
-        qWarning() << "Failed to get file diff via D-Bus:" << reply.error().message();
-        return QString();
-    }
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, filePath](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
 
-    return reply.value();
+        QDBusPendingReply<QString> reply = *w;
+
+        if (reply.isError()) {
+            qWarning() << "Failed to get file diff and details:" << reply.error().message();
+            emit fileDiffAndDetailsReady(filePath, QVariantMap(), QString());
+            return;
+        }
+
+        QString result = reply.value();
+        if (result.isEmpty()) {
+            emit fileDiffAndDetailsReady(filePath, QVariantMap(), QString());
+            return;
+        }
+
+        // セパレータでdetails部とdiff部を分割
+        const QString separator = "---DIFF_SEPARATOR---\n";
+        int sepIndex = result.indexOf(separator);
+
+        QString detailsPart;
+        QString diffPart;
+        if (sepIndex >= 0) {
+            detailsPart = result.left(sepIndex);
+            diffPart = result.mid(sepIndex + separator.length());
+        } else {
+            detailsPart = result;
+        }
+
+        // details部をQVariantMapにパース
+        QVariantMap details;
+        const QStringList lines = detailsPart.split('\n', Qt::SkipEmptyParts);
+        for (const QString &line : lines) {
+            int eqPos = line.indexOf('=');
+            if (eqPos > 0) {
+                details[line.left(eqPos)] = line.mid(eqPos + 1);
+            }
+        }
+
+        emit fileDiffAndDetailsReady(filePath, details, diffPart);
+    });
 }
 
 /**
@@ -474,6 +575,8 @@ QVariant FileChangeModel::data(const QModelIndex &index, int role) const
         return item->isDirectory();
     case IsCheckedRole:
         return item->isChecked();
+    case StatusFlagsRole:
+        return item->statusFlags();
     case Qt::DisplayRole:
         return item->name();
     default:
@@ -496,6 +599,7 @@ QHash<int, QByteArray> FileChangeModel::roleNames() const
     roles[ChangeTypeRole] = "changeType";
     roles[IsDirectoryRole] = "isDirectory";
     roles[IsCheckedRole] = "isChecked";
+    roles[StatusFlagsRole] = "statusFlags";
     return roles;
 }
 
@@ -520,6 +624,7 @@ void FileChangeModel::setupModelData(const QStringList &changes)
     struct ChangeInfo {
         QString path;           // スラッシュなしの正規化パス
         FileChangeItem::ChangeType type;
+        QString statusFlags;    // 詳細ステータスフラグ (例: "cpu..")
         bool isDirectory;
     };
 
@@ -556,6 +661,7 @@ void FileChangeModel::setupModelData(const QStringList &changes)
         ChangeInfo info;
         info.path = normalizedPath;
         info.type = type;
+        info.statusFlags = statusChars;
         info.isDirectory = isDirectory;
         uniqueChanges[normalizedPath] = info;
     }
@@ -581,7 +687,7 @@ void FileChangeModel::setupModelData(const QStringList &changes)
                 if (!itemMap.contains(currentPath)) {
                     // 新規アイテムを作成
                     QString itemPath = info.isDirectory ? (currentPath + "/") : currentPath;
-                    FileChangeItem *item = new FileChangeItem(itemPath, info.type, parentItem);
+                    FileChangeItem *item = new FileChangeItem(itemPath, info.type, info.statusFlags, parentItem);
                     parentItem->appendChild(item);
 
                     // itemMapに登録 (ディレクトリかファイルかに関わらず)
@@ -594,7 +700,7 @@ void FileChangeModel::setupModelData(const QStringList &changes)
                     // まだ作成されていない中間ディレクトリを作成
                     FileChangeItem *dirItem = new FileChangeItem(currentPath + "/",
                                                                 FileChangeItem::Modified,
-                                                                parentItem);
+                                                                QString(), parentItem);
                     parentItem->appendChild(dirItem);
                     itemMap[currentPath] = dirItem;
                 }

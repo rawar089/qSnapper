@@ -7,6 +7,7 @@
 #include <QDBusError>
 #include <QDateTime>
 #include <QProcess>
+#include <QFileInfo>
 #include <PolkitQt1/Authority>
 #include <PolkitQt1/Subject>
 #include <snapper/Snapper.h>
@@ -518,27 +519,26 @@ QString SnapshotOperations::GetFileChanges(const QString &configName, int snapsh
     }
 }
 
+
+
 /**
- * @brief ファイルの差分を取得
+ * @brief ファイルの差分と詳細情報を一括取得
  *
- * 指定されたスナップショット内のファイルと現在のシステムの
- * ファイルとの差分をunified diff形式で取得します。
+ * 1回のComparisonオブジェクト生成で、差分(diff)と詳細情報(パーミッション等)の
+ * 両方を取得します。GetFileDiff + GetFileDetails の統合版です。
  *
  * @param configName Snapper設定名
  * @param snapshotNumber 比較元のスナップショット番号
- * @param filePath 差分を取得するファイルパス
- * @return unified diff形式の差分、ファイルが見つからない場合は空文字列
+ * @param filePath 対象ファイルパス
+ * @return details部とdiff部をセパレータで分割した文字列
  */
-QString SnapshotOperations::GetFileDiff(const QString &configName, int snapshotNumber, const QString &filePath)
+QString SnapshotOperations::GetFileDiffAndDetails(const QString &configName, int snapshotNumber, const QString &filePath)
 {
     if (!checkAuthorization("com.presire.qsnapper.list-snapshots")) {
         return QString();
     }
 
     try {
-        // diffの取得には外部コマンド(diff)を使用する必要があるため、
-        // libsnapperのComparisonクラスを使用してファイルパスを取得し、
-        // 外部のdiffコマンドで差分を生成する
         snapper::Snapper *snapper = getSnapper(configName);
         if (!snapper) {
             sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
@@ -553,34 +553,78 @@ QString SnapshotOperations::GetFileDiff(const QString &configName, int snapshotN
             return QString();
         }
 
-        // スナップショットをマウント
+        // Comparisonオブジェクトを1回だけ作成（スナップショットマウントも1回のみ）
         snapper::Comparison comparison(snapper, snapshot1, snapshot2, true);
         const snapper::Files &files = comparison.getFiles();
 
-        // 指定されたファイルを検索
         auto fileIt = files.findAbsolutePath(filePath.toStdString());
         if (fileIt == files.end()) {
-            return QString(); // ファイルが見つからない場合は空文字列を返す
+            return QString();
         }
 
-        // ファイルの絶対パスを取得
-        // LOC_PRE: スナップショット内のファイル
-        // LOC_SYSTEM: 現在のシステムのファイル
-        QString file1Path = QString::fromStdString(fileIt->getAbsolutePath(snapper::LOC_PRE));
-        QString file2Path = QString::fromStdString(fileIt->getAbsolutePath(snapper::LOC_SYSTEM));
+        // --- Details部の構築 ---
+        unsigned int status = fileIt->getPreToPostStatus();
+        QString statusStr;
+        if (status & snapper::CREATED) statusStr += "+";
+        if (status & snapper::DELETED) statusStr += "-";
+        if (status & snapper::TYPE) statusStr += "t";
+        if (status & snapper::CONTENT) statusStr += "c";
+        if (status & snapper::PERMISSIONS) statusStr += "p";
+        if (status & snapper::OWNER) statusStr += "u";
+        if (status & snapper::GROUP) statusStr += "g";
+        if (status & snapper::XATTRS) statusStr += "x";
+        if (status & snapper::ACL) statusStr += "a";
+        if (statusStr.isEmpty()) statusStr = ".....";
+        statusStr = statusStr.leftJustified(5, '.');
 
-        // diffコマンドを実行 (スナップショット -> 現在の状態)
-        QProcess process;
-        process.start("diff", QStringList() << "-u" << file1Path << file2Path);
-        process.waitForFinished(10000);
+        auto permsToOctal = [](QFile::Permissions p) -> QString {
+            int mode = 0;
+            if (p & QFile::ReadOwner)  mode |= 0400;
+            if (p & QFile::WriteOwner) mode |= 0200;
+            if (p & QFile::ExeOwner)   mode |= 0100;
+            if (p & QFile::ReadGroup)  mode |= 0040;
+            if (p & QFile::WriteGroup) mode |= 0020;
+            if (p & QFile::ExeGroup)   mode |= 0010;
+            if (p & QFile::ReadOther)  mode |= 0004;
+            if (p & QFile::WriteOther) mode |= 0002;
+            if (p & QFile::ExeOther)   mode |= 0001;
+            return QString("%1").arg(mode, 4, 8, QChar('0'));
+        };
 
-        QString output = QString::fromUtf8(process.readAllStandardOutput());
-        return output;
+        QString detailsPart;
+        detailsPart += "status=" + statusStr + "\n";
+
+        QString snapshotPath = QString::fromStdString(fileIt->getAbsolutePath(snapper::LOC_PRE));
+        QFileInfo snapshotInfo(snapshotPath);
+        if (snapshotInfo.exists()) {
+            detailsPart += "snapshotPerms=" + permsToOctal(snapshotInfo.permissions()) + "\n";
+            detailsPart += "snapshotOwner=" + snapshotInfo.owner() + "\n";
+            detailsPart += "snapshotGroup=" + snapshotInfo.group() + "\n";
+        }
+
+        QString currentPath = QString::fromStdString(fileIt->getAbsolutePath(snapper::LOC_SYSTEM));
+        QFileInfo currentInfo(currentPath);
+        if (currentInfo.exists()) {
+            detailsPart += "currentPerms=" + permsToOctal(currentInfo.permissions()) + "\n";
+            detailsPart += "currentOwner=" + currentInfo.owner() + "\n";
+            detailsPart += "currentGroup=" + currentInfo.group() + "\n";
+        }
+
+        // --- Diff部の取得 ---
+        QString diffPart;
+        if (snapshotInfo.exists() && currentInfo.exists()) {
+            QProcess process;
+            process.start("diff", QStringList() << "-u" << snapshotPath << currentPath);
+            process.waitForFinished(10000);
+            diffPart = QString::fromUtf8(process.readAllStandardOutput());
+        }
+
+        return detailsPart + "---DIFF_SEPARATOR---\n" + diffPart;
 
     }
     catch (const snapper::Exception &e) {
-        qWarning() << "Failed to get file diff:" << e.what();
-        sendErrorReply(QDBusError::Failed, QString("Failed to get file diff: %1").arg(e.what()));
+        qWarning() << "Failed to get file diff and details:" << e.what();
+        sendErrorReply(QDBusError::Failed, QString("Failed to get file diff and details: %1").arg(e.what()));
         return QString();
     }
 }

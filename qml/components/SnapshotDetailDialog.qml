@@ -22,6 +22,7 @@ Dialog {
     title: qsTr("Snapshot Details")
 
     property var snapshot: null                      // 表示するスナップショット情報
+    property var postSnapshot: null                  // Pre/Postペア時のPost情報
     property var snapshotListModel: null             // スナップショットリストモデルへの参照
 
     // 復元プレビューダイアログ
@@ -29,7 +30,15 @@ Dialog {
     RestorePreviewDialog {
         id: restorePreviewDialog
         configName: "root"  // 通常はrootファイルシステムの設定を使用
-        snapshotNumber: (snapshot && snapshot.number) ? snapshot.number : 0
+        // Pre/Postペアの場合はPre/Post両方の番号を設定
+        preSnapshotNumber: (postSnapshot && postSnapshot.number) ? snapshot.number : 0
+        postSnapshotNumber: (postSnapshot && postSnapshot.number) ? postSnapshot.number : 0
+        // デフォルトはPost番号（Pre/Postペアでない場合はsnapshot番号）
+        snapshotNumber: {
+            if (postSnapshot && postSnapshot.number)
+                return postSnapshot.number
+            return (snapshot && snapshot.number) ? snapshot.number : 0
+        }
     }
 
     ColumnLayout {
@@ -63,7 +72,12 @@ Dialog {
                             font.bold: true
                         }
                         Label {
-                            text: snapshot ? snapshot.number : ""
+                            text: {
+                                if (!snapshot) return ""
+                                if (postSnapshot && postSnapshot.number)
+                                    return snapshot.number + " & " + postSnapshot.number
+                                return snapshot.number
+                            }
                         }
 
                         Label {
@@ -76,6 +90,8 @@ Dialog {
                                 switch (snapshot.snapshotTypeString) {
                                 case "single":
                                     return qsTr("Single")
+                                case "prepost":
+                                    return qsTr("Pre and Post")
                                 case "pre":
                                     return qsTr("Pre")
                                 case "post":
@@ -87,11 +103,22 @@ Dialog {
                         }
 
                         Label {
-                            text: qsTr("Date/Time:")
+                            text: postSnapshot ? qsTr("Start Date:") : qsTr("Date/Time:")
                             font.bold: true
                         }
                         Label {
                             text: snapshot ? Qt.formatDateTime(snapshot.timestamp, "yyyy-MM-dd HH:mm:ss") : ""
+                        }
+
+                        // 終了日 (Pre/Postペアの場合のみ表示)
+                        Label {
+                            text: qsTr("End Date:")
+                            font.bold: true
+                            visible: postSnapshot !== null && postSnapshot !== undefined
+                        }
+                        Label {
+                            text: postSnapshot ? Qt.formatDateTime(postSnapshot.timestamp, "yyyy-MM-dd HH:mm:ss") : ""
+                            visible: postSnapshot !== null && postSnapshot !== undefined
                         }
 
                         Label {
@@ -179,9 +206,9 @@ Dialog {
             Layout.fillWidth: true
             spacing: 10
 
-            // ファイル復元ボタン
+            // 変更点の表示ボタン
             Button {
-                text: qsTr("Restore Files")
+                text: qsTr("Show Changes")
                 icon.name: "document-revert"
                 highlighted: true
                 onClicked: restorePreviewDialog.open()

@@ -254,8 +254,20 @@
         <translation>Benutzer Daten</translation>
     </message>
     <message>
-        <source>Restore Files</source>
-        <translation>Dateien wiederherstellen</translation>
+        <source>Show Changes</source>
+        <translation>Änderungen anzeigen</translation>
+    </message>
+    <message>
+        <source>Pre and Post</source>
+        <translation>Vorher und Nachher</translation>
+    </message>
+    <message>
+        <source>Start Date:</source>
+        <translation>Startdatum:</translation>
+    </message>
+    <message>
+        <source>End Date:</source>
+        <translation>Enddatum:</translation>
     </message>
     <message>
         <source>System Rollback</source>
@@ -296,6 +308,60 @@
     <message>
         <source>Rollback failed: %1</source>
         <translation>Rollback fehlgeschlagen: %1</translation>
+    </message>
+</context>
+<context>
+    <name>SnapshotTableHeader</name>
+    <message>
+        <source>ID</source>
+        <translation>ID</translation>
+    </message>
+    <message>
+        <source>Type</source>
+        <translation>Typ</translation>
+    </message>
+    <message>
+        <source>Start Date</source>
+        <translation>Startdatum</translation>
+    </message>
+    <message>
+        <source>End Date</source>
+        <translation>Enddatum</translation>
+    </message>
+    <message>
+        <source>Description</source>
+        <translation>Beschreibung</translation>
+    </message>
+    <message>
+        <source>User Data</source>
+        <translation>Benutzer Daten</translation>
+    </message>
+</context>
+<context>
+    <name>SnapshotTableRow</name>
+    <message>
+        <source>Single</source>
+        <translation>Einzeln</translation>
+    </message>
+    <message>
+        <source>Pre and Post</source>
+        <translation>Vorher und Nachher</translation>
+    </message>
+    <message>
+        <source>Pre</source>
+        <translation>Vorher</translation>
+    </message>
+    <message>
+        <source>Post</source>
+        <translation>Nachher</translation>
+    </message>
+    <message>
+        <source>(No description)</source>
+        <translation>(Keine Beschreibung)</translation>
+    </message>
+    <message>
+        <source>Details</source>
+        <translation>Details</translation>
     </message>
 </context>
 <context>

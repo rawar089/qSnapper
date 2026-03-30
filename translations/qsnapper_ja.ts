@@ -254,8 +254,20 @@
         <translation>ユーザデータ</translation>
     </message>
     <message>
-        <source>Restore Files</source>
-        <translation>ファイルを復元</translation>
+        <source>Show Changes</source>
+        <translation>変更点の表示</translation>
+    </message>
+    <message>
+        <source>Pre and Post</source>
+        <translation>事前および事後</translation>
+    </message>
+    <message>
+        <source>Start Date:</source>
+        <translation>開始日:</translation>
+    </message>
+    <message>
+        <source>End Date:</source>
+        <translation>終了日:</translation>
     </message>
     <message>
         <source>System Rollback</source>
@@ -296,6 +308,60 @@
     <message>
         <source>Rollback failed: %1</source>
         <translation>復元に失敗しました: %1</translation>
+    </message>
+</context>
+<context>
+    <name>SnapshotTableHeader</name>
+    <message>
+        <source>ID</source>
+        <translation>ID</translation>
+    </message>
+    <message>
+        <source>Type</source>
+        <translation>種類</translation>
+    </message>
+    <message>
+        <source>Start Date</source>
+        <translation>開始日</translation>
+    </message>
+    <message>
+        <source>End Date</source>
+        <translation>終了日</translation>
+    </message>
+    <message>
+        <source>Description</source>
+        <translation>説明</translation>
+    </message>
+    <message>
+        <source>User Data</source>
+        <translation>ユーザデータ</translation>
+    </message>
+</context>
+<context>
+    <name>SnapshotTableRow</name>
+    <message>
+        <source>Single</source>
+        <translation>単一</translation>
+    </message>
+    <message>
+        <source>Pre and Post</source>
+        <translation>事前および事後</translation>
+    </message>
+    <message>
+        <source>Pre</source>
+        <translation>事前</translation>
+    </message>
+    <message>
+        <source>Post</source>
+        <translation>事後</translation>
+    </message>
+    <message>
+        <source>(No description)</source>
+        <translation>(説明なし)</translation>
+    </message>
+    <message>
+        <source>Details</source>
+        <translation>詳細</translation>
     </message>
 </context>
 <context>

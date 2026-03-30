@@ -23,13 +23,14 @@ public:
 private:
     QString m_path;                         // ファイル/ディレクトリのパス
     ChangeType m_changeType;                // 変更タイプ
+    QString m_statusFlags;                  // 詳細ステータスフラグ (例: "cpu..")
     QVector<FileChangeItem*> m_children;    // 子要素のリスト
     FileChangeItem *m_parent;               // 親要素へのポインタ
     bool m_checked = false;                 // チェック状態
     bool m_explicitlyUnchecked = false;     // 明示的にチェックを外されたフラグ
 
 public:
-    explicit FileChangeItem(const QString &path, ChangeType type, FileChangeItem *parent = nullptr);
+    explicit FileChangeItem(const QString &path, ChangeType type, const QString &statusFlags = QString(), FileChangeItem *parent = nullptr);
     ~FileChangeItem();
 
     void appendChild(FileChangeItem *child);
@@ -41,6 +42,7 @@ public:
     QString path() const { return m_path; }
     QString name() const;
     ChangeType changeType() const { return m_changeType; }
+    QString statusFlags() const { return m_statusFlags; }
     bool isDirectory() const;
     bool isChecked() const { return m_checked; }
     void setChecked(bool checked) { m_checked = checked; }
@@ -57,6 +59,7 @@ class FileChangeModel : public QAbstractItemModel
     Q_PROPERTY(QString configName READ configName WRITE setConfigName NOTIFY configNameChanged)
     Q_PROPERTY(int snapshotNumber READ snapshotNumber WRITE setSnapshotNumber NOTIFY snapshotNumberChanged)
     Q_PROPERTY(bool hasChanges READ hasChanges NOTIFY hasChangesChanged)
+    Q_PROPERTY(bool loading READ isLoading NOTIFY loadingChanged)
 
 private:
     QString m_configName;                   // Snapper設定名
@@ -64,6 +67,7 @@ private:
     FileChangeItem *m_rootItem;             // ツリーのルートアイテム
     QDBusInterface *m_dbusInterface;        // D-Busインターフェース
     bool m_hasChanges;                      // ファイル変更があるかどうか
+    bool m_loading;                         // 読み込み中フラグ
 
     // バッチ復元用の変数
     QList<QStringList> m_restoreBatches;    // 復元ファイルのバッチリスト
@@ -95,7 +99,8 @@ public:
         NameRole,
         ChangeTypeRole,
         IsDirectoryRole,
-        IsCheckedRole
+        IsCheckedRole,
+        StatusFlagsRole
     };
 
     explicit FileChangeModel(QObject *parent = nullptr);
@@ -117,20 +122,24 @@ public:
     void setSnapshotNumber(int number);
 
     bool hasChanges() const { return m_hasChanges; }
+    bool isLoading() const { return m_loading; }
 
     // 公開メソッド
     Q_INVOKABLE void loadChanges();
-    Q_INVOKABLE QString getFileDiff(const QString &filePath);
+    Q_INVOKABLE void getFileDiffAndDetails(const QString &filePath);
     Q_INVOKABLE void setItemChecked(const QString &filePath, bool checked);
     Q_INVOKABLE QStringList getCheckedItems() const;
     Q_INVOKABLE bool restoreCheckedItems();
+    Q_INVOKABLE void restoreSingleFile(const QString &filePath);
     Q_INVOKABLE void cancelRestore();
 
 signals:
     void configNameChanged();
     void snapshotNumberChanged();
     void hasChangesChanged();
+    void loadingChanged();
     void errorOccurred(const QString &message);
+    void fileDiffAndDetailsReady(const QString &filePath, const QVariantMap &details, const QString &diff);
     void restoreProgress(int current, int total, const QString &filePath);
     void restoreCompleted(bool success);
 

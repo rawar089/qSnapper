@@ -10,9 +10,26 @@ Dialog {
     id: root
 
     property string configName: "root"               // Snapper設定名
-    property int snapshotNumber: 0                   // 対象スナップショット番号
+    property int snapshotNumber: 0                   // 対象スナップショット番号（現在表示中）
+    property int preSnapshotNumber: 0                // Preスナップショット番号（0 = Pre/Postペアではない）
+    property int postSnapshotNumber: 0               // Postスナップショット番号
+    readonly property bool isPrePostPair: preSnapshotNumber > 0 && postSnapshotNumber > 0
 
     signal restoreConfirmed()                        // 復元確認シグナル
+
+    // ラジオボタン切り替え時の共通処理: 右ペインのみ再描画
+    function switchSnapshotView(targetNumber) {
+        if (root.snapshotNumber === targetNumber) return
+        root.snapshotNumber = targetNumber
+        fileChangeModel.snapshotNumber = targetNumber
+        if (rightPane.fileSelected && rightPane.selectedFilePath !== "") {
+            rightPane.fileLoading = true
+            rightPane.fileDetails = {}
+            diffTextArea.textFormat = TextEdit.PlainText
+            diffTextArea.text = ""
+            fileChangeModel.getFileDiffAndDetails(rightPane.selectedFilePath)
+        }
+    }
 
     width: {
         if (!ApplicationWindow.window) return 960
@@ -46,6 +63,21 @@ Dialog {
             errorLabel.visible = true
         }
 
+        // ファイル差分＋詳細情報の非同期結果ハンドラ
+        onFileDiffAndDetailsReady: function(filePath, details, diff) {
+            if (filePath !== rightPane.selectedFilePath) return
+            rightPane.fileLoading = false
+            rightPane.fileDetails = details
+
+            if (diff === "") {
+                diffTextArea.textFormat = TextEdit.PlainText
+                diffTextArea.text = ""
+            } else {
+                diffTextArea.textFormat = TextEdit.RichText
+                diffTextArea.text = rightPane.formatDiffHtml(diff)
+            }
+        }
+
         // 復元進捗更新ハンドラ
         onRestoreProgress: function(current, total, filePath) {
             progressDialog.currentFile = filePath
@@ -57,9 +89,45 @@ Dialog {
         onRestoreCompleted: function(success) {
             progressDialog.close()
             if (success) {
-                // 復元成功後、データを再読み込みして最新状態を反映
+                // 右ペインの選択状態をリセット
+                rightPane.fileSelected = false
+                rightPane.selectedFilePath = ""
+                rightPane.selectedChangeType = -1
+                rightPane.selectedStatusFlags = ""
+                rightPane.fileLoading = false
+                rightPane.fileDetails = {}
+                diffTextArea.textFormat = TextEdit.PlainText
+                diffTextArea.text = ""
+
+                // 復元成功後、ラジオボタン選択中のスナップショット番号に戻してから再読み込み
+                fileChangeModel.snapshotNumber = root.snapshotNumber
                 fileChangeModel.loadChanges()
                 successDialog.open()
+            }
+        }
+    }
+
+    // 読み込み中のオーバーレイ
+    Item {
+        anchors.fill: parent
+        visible: fileChangeModel.loading
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: 15
+
+            BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                running: fileChangeModel.loading
+                Layout.preferredWidth: 48
+                Layout.preferredHeight: 48
+            }
+
+            Label {
+                text: qsTr("Loading file changes. Please wait...")
+                font.pixelSize: 14
+                Layout.alignment: Qt.AlignHCenter
+                color: palette.text
             }
         }
     }
@@ -68,6 +136,7 @@ Dialog {
     ColumnLayout {
         anchors.fill: parent
         spacing: 10
+        visible: !fileChangeModel.loading
 
         // 説明ヘッダー
         Label {
@@ -77,6 +146,29 @@ Dialog {
 
         Label {
             text: qsTr("Shows the system state after applying the specified snapshot")
+        }
+
+        // Pre/Postペア時: 差分対象スナップショット切り替えラジオボタン
+        GroupBox {
+            visible: root.isPrePostPair
+            Layout.fillWidth: true
+
+            RowLayout {
+                spacing: 20
+
+                RadioButton {
+                    id: preRadioButton
+                    text: qsTr("Show differences between snapshot #%1 (Pre) and the current system").arg(root.preSnapshotNumber)
+                    onClicked: root.switchSnapshotView(root.preSnapshotNumber)
+                }
+
+                RadioButton {
+                    id: postRadioButton
+                    checked: true
+                    text: qsTr("Show differences between snapshot #%1 (Post) and the current system").arg(root.postSnapshotNumber)
+                    onClicked: root.switchSnapshotView(root.postSnapshotNumber)
+                }
+            }
         }
 
         // メインコンテンツ: 左右分割ビュー
@@ -132,6 +224,20 @@ Dialog {
                                     required property string fileName          // ファイル/ディレクトリ名
                                     required property string filePath          // フルパス
                                     required property bool isChecked           // 復元選択状態
+                                    required property string statusFlags       // 詳細ステータスフラグ
+
+                                    // 選択・ホバー時の背景をペイン全幅に表示
+                                    background: Item {
+                                        Rectangle {
+                                            // デリゲートのインデントを打ち消してTreeView左端から右端まで描画
+                                            x: -delegateItem.x
+                                            width: treeView.width
+                                            height: parent.height
+                                            color: delegateItem.current ? palette.highlight
+                                                 : delegateItem.hovered ? (ThemeManager.isDark ? "#30FFFFFF" : "#20000000")
+                                                 : "transparent"
+                                        }
+                                    }
 
                                     contentItem: RowLayout {
                                         spacing: 5
@@ -199,25 +305,22 @@ Dialog {
                                         }
                                     }
 
-                                    // クリック時: 右ペインにdiffを表示
+                                    // クリック時: 右ペインにファイル詳細を非同期で表示
                                     onClicked: {
                                         if (!isDirectory) {
-                                            diffTextArea.text = qsTr("Loading diff...")
-                                            var diff = fileChangeModel.getFileDiff(filePath)
+                                            // 選択ファイル情報を右ペインに設定
+                                            rightPane.selectedFilePath = filePath
+                                            rightPane.selectedChangeType = changeType
+                                            rightPane.selectedStatusFlags = statusFlags
+                                            rightPane.fileSelected = true
+                                            rightPane.fileLoading = true
 
-                                            if (diff === "") {
-                                                // 新規作成されたファイル
-                                                if (changeType === 0) {
-                                                    diffTextArea.text = qsTr("New file created.")
-                                                } else if (changeType === 2) {
-                                                    diffTextArea.text = qsTr("File deleted.")
-                                                } else {
-                                                    diffTextArea.text = qsTr("No diff found.")
-                                                }
-                                            } else {
-                                                diffTextArea.text = diff
-                                            }
+                                            // 非同期で統合リクエスト（1回のD-Bus呼び出し）
+                                            fileChangeModel.getFileDiffAndDetails(filePath)
                                         } else {
+                                            rightPane.fileSelected = false
+                                            rightPane.fileLoading = false
+                                            diffTextArea.textFormat = TextEdit.PlainText
                                             diffTextArea.text = ""
                                         }
                                     }
@@ -242,38 +345,217 @@ Dialog {
                 }
             }
 
-            // 右ペイン: ファイル差分(diff)表示
+            // 右ペイン: ファイル詳細・差分表示
             Rectangle {
+                id: rightPane
                 SplitView.minimumWidth: 500
                 SplitView.fillWidth: true
                 color: palette.base
                 border.color: palette.mid
                 border.width: 1
 
+                // 選択ファイルの状態プロパティ
+                property bool fileSelected: false
+                property bool fileLoading: false
+                property string selectedFilePath: ""
+                property int selectedChangeType: -1
+                property string selectedStatusFlags: ""
+                property var fileDetails: ({})
+
+                // HTMLエスケープ
+                function escapeHtml(text) {
+                    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                }
+
+                // diffテキストをカラーHTML に変換
+                function formatDiffHtml(diffText) {
+                    var lines = diffText.split('\n')
+                    var html = '<pre style="font-family: monospace; font-size: 14px; white-space: pre-wrap;">'
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = escapeHtml(lines[i])
+                        if (line.startsWith('+++') || line.startsWith('---')) {
+                            html += '<span style="color: ' + ThemeManager.fileChangeModified + '; font-weight: bold;">' + line + '</span>\n'
+                        } else if (line.startsWith('@@')) {
+                            html += '<span style="color: ' + ThemeManager.fileChangeTypeChanged + ';">' + line + '</span>\n'
+                        } else if (line.startsWith('+')) {
+                            html += '<span style="color: ' + ThemeManager.fileChangeCreated + ';">' + line + '</span>\n'
+                        } else if (line.startsWith('-')) {
+                            html += '<span style="color: ' + ThemeManager.fileChangeDeleted + ';">' + line + '</span>\n'
+                        } else {
+                            html += line + '\n'
+                        }
+                    }
+                    html += '</pre>'
+                    return html
+                }
+
+                // コンテンツ変更テキストを取得
+                function getContentStatusText() {
+                    switch (selectedChangeType) {
+                    case 0: return qsTr("New file was created.")
+                    case 1: return qsTr("File content was modified.")
+                    case 2: return qsTr("File was removed.")
+                    case 3: return qsTr("File type was changed.")
+                    default: return qsTr("File content was modified.")
+                    }
+                }
+
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 5
-                    spacing: 5
+                    anchors.margins: 8
+                    spacing: 8
 
+                    // ファイル未選択時のプレースホルダー
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: !rightPane.fileSelected
+
+                        Label {
+                            anchors.centerIn: parent
+                            text: qsTr("Select a file to view details")
+                            color: palette.placeholderText
+                            font.pixelSize: 14
+                        }
+                    }
+
+                    // ファイル選択時のコンテンツ
+                    // ファイルパスヘッダー
+                    Label {
+                        visible: rightPane.fileSelected
+                        text: rightPane.selectedFilePath
+                        font.bold: true
+                        font.pixelSize: 12
+                        elide: Text.ElideMiddle
+                        Layout.fillWidth: true
+                    }
+
+                    // ローディング中のインジケーター
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: rightPane.fileSelected && rightPane.fileLoading
+
+                        ColumnLayout {
+                            anchors.centerIn: parent
+                            spacing: 10
+
+                            BusyIndicator {
+                                Layout.alignment: Qt.AlignHCenter
+                                running: rightPane.fileLoading
+                            }
+
+                            Label {
+                                text: qsTr("Loading file details...")
+                                color: palette.placeholderText
+                                Layout.alignment: Qt.AlignHCenter
+                            }
+                        }
+                    }
+
+                    // ステータス情報セクション
+                    GroupBox {
+                        visible: rightPane.fileSelected && !rightPane.fileLoading
+                        title: qsTr("File Status")
+                        Layout.fillWidth: true
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 4
+
+                            // コンテンツ変更ステータス
+                            Label {
+                                text: rightPane.getContentStatusText()
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                                color: {
+                                    switch (rightPane.selectedChangeType) {
+                                    case 0: return ThemeManager.fileChangeCreated
+                                    case 2: return ThemeManager.fileChangeDeleted
+                                    default: return palette.text
+                                    }
+                                }
+                            }
+
+                            // パーミッション変更
+                            Label {
+                                visible: rightPane.selectedStatusFlags.indexOf('p') !== -1
+                                text: {
+                                    var d = rightPane.fileDetails
+                                    var from = d["snapshotPerms"] || "?"
+                                    var to = d["currentPerms"] || "?"
+                                    return qsTr("File mode was changed from '%1' to '%2'.").arg(from).arg(to)
+                                }
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+
+                            // ユーザー所有者変更
+                            Label {
+                                visible: rightPane.selectedStatusFlags.indexOf('u') !== -1
+                                text: {
+                                    var d = rightPane.fileDetails
+                                    var from = d["snapshotOwner"] || "?"
+                                    var to = d["currentOwner"] || "?"
+                                    return qsTr("File user ownership was changed from '%1' to '%2'.").arg(from).arg(to)
+                                }
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+
+                            // グループ所有者変更
+                            Label {
+                                visible: rightPane.selectedStatusFlags.indexOf('g') !== -1
+                                text: {
+                                    var d = rightPane.fileDetails
+                                    var from = d["snapshotGroup"] || "?"
+                                    var to = d["currentGroup"] || "?"
+                                    return qsTr("File group ownership was changed from '%1' to '%2'.").arg(from).arg(to)
+                                }
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                        }
+                    }
+
+                    // カラーdiff表示
                     ScrollView {
+                        visible: rightPane.fileSelected && !rightPane.fileLoading
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        contentWidth: availableWidth
 
-                        // diff表示用テキストエリア
                         TextArea {
                             id: diffTextArea
                             width: parent.width
                             readOnly: true
                             font.family: "Monospace"
-                            font.pixelSize: 11
+                            font.pixelSize: 14
                             text: ""
                             wrapMode: TextArea.NoWrap
                             textFormat: TextEdit.PlainText
                             color: palette.text
                             background: Rectangle {
                                 color: palette.base
+                            }
+                        }
+                    }
+
+                    // 個別ファイル復元ボタン
+                    RowLayout {
+                        visible: rightPane.fileSelected && !rightPane.fileLoading
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        Item { Layout.fillWidth: true }
+
+                        Button {
+                            text: rightPane.selectedChangeType === 0
+                                  ? qsTr("Remove")
+                                  : qsTr("Restore")
+                            highlighted: true
+                            onClicked: {
+                                confirmSingleRestoreDialog.open()
                             }
                         }
                     }
@@ -305,13 +587,39 @@ Dialog {
                 onClicked: root.close()
             }
 
-            // 復元実行ボタン
+            // 非Pre/Post時: 従来の復元ボタン
             Button {
                 id: restoreButton
+                visible: !root.isPrePostPair
                 text: qsTr("Restore Selected")
                 highlighted: true
                 enabled: fileChangeModel.hasChanges
                 onClicked: {
+                    confirmRestoreDialog.restoreTargetNumber = root.snapshotNumber
+                    confirmRestoreDialog.open()
+                }
+            }
+
+            // Pre/Post時: Preスナップショットから復元
+            Button {
+                visible: root.isPrePostPair
+                text: qsTr("Restore from Pre #%1").arg(root.preSnapshotNumber)
+                highlighted: true
+                enabled: fileChangeModel.hasChanges
+                onClicked: {
+                    confirmRestoreDialog.restoreTargetNumber = root.preSnapshotNumber
+                    confirmRestoreDialog.open()
+                }
+            }
+
+            // Pre/Post時: Postスナップショットから復元
+            Button {
+                visible: root.isPrePostPair
+                text: qsTr("Restore from Post #%1").arg(root.postSnapshotNumber)
+                highlighted: true
+                enabled: fileChangeModel.hasChanges
+                onClicked: {
+                    confirmRestoreDialog.restoreTargetNumber = root.postSnapshotNumber
                     confirmRestoreDialog.open()
                 }
             }
@@ -336,6 +644,8 @@ Dialog {
             return Math.min(Math.max(calculated, 280), 650)
         }
 
+        property int restoreTargetNumber: 0  // 復元対象のスナップショット番号（open前に明示的にセット）
+
         ColumnLayout {
             spacing: 10
 
@@ -345,7 +655,7 @@ Dialog {
             }
 
             Label {
-                text: qsTr("This will restore selected files and directories to snapshot #%1 state.").arg(snapshotNumber)
+                text: qsTr("This will restore selected files and directories to snapshot #%1 state.").arg(confirmRestoreDialog.restoreTargetNumber)
                 wrapMode: Text.WordWrap
                 Layout.preferredWidth: 450
                 color: palette.text
@@ -362,6 +672,8 @@ Dialog {
 
         // 復元実行
         onAccepted: {
+            // 復元対象のスナップショット番号を設定（D-Bus RestoreFilesに使用される）
+            fileChangeModel.snapshotNumber = confirmRestoreDialog.restoreTargetNumber
             progressDialog.currentProgress = 0
             progressDialog.totalProgress = 0
             progressDialog.currentFile = ""
@@ -432,6 +744,65 @@ Dialog {
         // キャンセル時
         onRejected: {
             fileChangeModel.cancelRestore()
+        }
+    }
+
+    // 個別ファイル復元確認ダイアログ
+    Dialog {
+        id: confirmSingleRestoreDialog
+        title: qsTr("Confirmation")
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        standardButtons: Dialog.Yes | Dialog.No
+        width: {
+            if (!ApplicationWindow.window) return 550
+            var calculated = ApplicationWindow.window.width * 0.45
+            return Math.min(Math.max(calculated, 550), 850)
+        }
+        height: {
+            if (!ApplicationWindow.window) return 280
+            var calculated = ApplicationWindow.window.height * 0.35
+            return Math.min(Math.max(calculated, 280), 650)
+        }
+
+        ColumnLayout {
+            spacing: 10
+
+            Label {
+                text: rightPane.selectedChangeType === 0
+                      ? qsTr("Remove this file from the current system?")
+                      : qsTr("Restore this file from snapshot #%1?").arg(snapshotNumber)
+                font.bold: true
+                wrapMode: Text.WordWrap
+                Layout.preferredWidth: 450
+            }
+
+            Label {
+                text: rightPane.selectedFilePath
+                wrapMode: Text.WrapAnywhere
+                Layout.preferredWidth: 450
+                color: palette.text
+                font.family: "Monospace"
+                font.pixelSize: 11
+            }
+
+            Label {
+                text: rightPane.selectedChangeType === 0
+                      ? qsTr("Warning: This file will be deleted from the current system.")
+                      : qsTr("Warning: The current file will be overwritten.")
+                wrapMode: Text.WordWrap
+                Layout.preferredWidth: 450
+                color: ThemeManager.warningColor
+                font.italic: true
+            }
+        }
+
+        onAccepted: {
+            progressDialog.currentProgress = 0
+            progressDialog.totalProgress = 1
+            progressDialog.currentFile = rightPane.selectedFilePath
+            progressDialog.open()
+            fileChangeModel.restoreSingleFile(rightPane.selectedFilePath)
         }
     }
 

@@ -10,6 +10,8 @@ _deps/
 # Build directories
 build/
 build-*/
+Debug/
+Release/
 debug/
 release/
 
@@ -68,6 +70,9 @@ qsnapper-dbus-service
 .clangd/
 .cache/
 compile_commands.json
+
+# Claude Code
+.claude/settings.local.json
 
 # macOS
 .DS_Store

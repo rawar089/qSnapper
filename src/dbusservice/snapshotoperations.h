@@ -36,7 +36,7 @@ public slots:
     bool DeleteSnapshot(int number);
     bool RollbackSnapshot(int number);
     QString GetFileChanges(const QString &configName, int snapshotNumber);
-    QString GetFileDiff(const QString &configName, int snapshotNumber, const QString &filePath);
+    QString GetFileDiffAndDetails(const QString &configName, int snapshotNumber, const QString &filePath);
     bool RestoreFiles(const QString &configName, int snapshotNumber, const QStringList &filePaths);
     void Quit();
 

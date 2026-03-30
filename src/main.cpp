@@ -15,6 +15,7 @@
 #include "snapshotlistmodel.h"
 #include "filechangemodel.h"
 #include "thememanager.h"
+#include "snapshotgroupmodel.h"
 
 int main(int argc, char *argv[])
 {
@@ -23,7 +24,7 @@ int main(int argc, char *argv[])
     app.setOrganizationName("Presire");
     app.setOrganizationDomain("https://github.com/presire");
     app.setApplicationName("qSnapper");
-    app.setApplicationVersion("1.0.3");
+    app.setApplicationVersion("1.1.0");
     app.setWindowIcon(QIcon(":QSnapper/icons/qSnapper.png"));
 
     // 翻訳システムの設定
@@ -60,6 +61,7 @@ int main(int argc, char *argv[])
     qmlRegisterType<FsSnapshot>("QSnapper", 1, 0, "FsSnapshot");
     qmlRegisterType<SnapshotListModel>("QSnapper", 1, 0, "SnapshotListModel");
     qmlRegisterType<FileChangeModel>("QSnapper", 1, 0, "FileChangeModel");
+    qmlRegisterType<SnapshotGroupModel>("QSnapper", 1, 0, "SnapshotGroupModel");
     qmlRegisterSingletonInstance("QSnapper", 1, 0, "SnapperService", SnapperService::instance());
     qmlRegisterSingletonInstance("QSnapper", 1, 0, "ThemeManager", ThemeManager::instance());
 

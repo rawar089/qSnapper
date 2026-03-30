@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract and validate version
+        id: version
+        run: |
+          tag_ver="${GITHUB_REF_NAME#v}"
+          cmake_ver=$(grep -oP 'project\(qsnapper VERSION \K[0-9.]+' CMakeLists.txt)
+          if [ "$tag_ver" != "$cmake_ver" ]; then
+            echo "::error::Tag version ($tag_ver) does not match CMakeLists.txt version ($cmake_ver)"
+            exit 1
+          fi
+          echo "VERSION=$tag_ver" >> "$GITHUB_OUTPUT"
+          echo "Version: $tag_ver"
+
+  build-rpm-opensuse:
+    needs: validate
+    runs-on: ubuntu-latest
+    container:
+      image: opensuse/leap:16.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          zypper --non-interactive refresh
+          zypper --non-interactive install -y \
+            cmake gcc-c++ rpm-build \
+            qt6-base-devel qt6-declarative-devel \
+            qt6-quickcontrols2-devel qt6-linguist-devel \
+            polkit-devel libpolkit-qt6-1-devel libsnapper-devel
+
+      - name: Build
+        run: |
+          cmake -B build \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel $(nproc)
+
+      - name: Package RPM
+        run: |
+          cd build
+          cpack -G RPM
+
+      - name: Rename artifact
+        run: |
+          cd build
+          for f in *.rpm; do
+            mv "$f" "qsnapper-${{ needs.validate.outputs.version }}-leap16.x86_64.rpm"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-opensuse
+          path: build/*.rpm
+
+  build-rpm-rhel:
+    needs: validate
+    runs-on: ubuntu-latest
+    container:
+      image: almalinux:9
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable EPEL and CRB repositories
+        run: |
+          dnf install -y epel-release
+          dnf config-manager --set-enabled crb
+
+      - name: Install dependencies
+        run: |
+          dnf install -y \
+            cmake gcc-c++ rpm-build \
+            qt6-qtbase-devel qt6-qtdeclarative-devel \
+            qt6-linguist qt6-linguist-devel \
+            polkit-devel polkit-qt6-1-devel snapper-devel
+
+      - name: Build
+        run: |
+          cmake -B build \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel $(nproc)
+
+      - name: Package RPM
+        run: |
+          cd build
+          cpack -G RPM
+
+      - name: Rename artifact
+        run: |
+          cd build
+          for f in *.rpm; do
+            mv "$f" "qsnapper-${{ needs.validate.outputs.version }}-el9.x86_64.rpm"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-rhel9
+          path: build/*.rpm
+
+  build-deb:
+    needs: validate
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            cmake g++ pkg-config \
+            qt6-base-dev qt6-declarative-dev qt6-l10n-tools \
+            libpolkit-qt6-1-dev libsnapper-dev
+
+      - name: Build
+        run: |
+          cmake -B build \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel $(nproc)
+
+      - name: Package DEB
+        run: |
+          cd build
+          cpack -G DEB
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-debian
+          path: build/*.deb
+
+  release:
+    needs: [validate, build-rpm-opensuse, build-rpm-rhel, build-deb]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "qSnapper ${{ needs.validate.outputs.version }}" \
+            --generate-notes \
+            artifacts/*

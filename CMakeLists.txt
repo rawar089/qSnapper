@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(qsnapper VERSION 1.0.3 LANGUAGES CXX)
+project(qsnapper VERSION 1.1.0 LANGUAGES CXX)
 
 # Linux専用プロジェクト - 他のプラットフォームでは明示的にエラーを出す
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -27,6 +27,7 @@ set(SOURCES
     src/snapshotlistmodel.cpp
     src/filechangemodel.cpp
     src/thememanager.cpp
+    src/snapshotgroupmodel.cpp
 )
 
 set(HEADERS
@@ -36,6 +37,7 @@ set(HEADERS
     include/snapshotlistmodel.h
     include/filechangemodel.h
     include/thememanager.h
+    include/snapshotgroupmodel.h
 )
 
 qt6_add_executable(qsnapper ${SOURCES} ${HEADERS})
@@ -57,6 +59,8 @@ qt6_add_qml_module(qsnapper
         qml/components/RestorePreviewDialog.qml
         qml/components/AboutqSnapperDialog.qml
         qml/components/AboutQtDialog.qml
+        qml/components/SnapshotTableHeader.qml
+        qml/components/SnapshotTableRow.qml
 )
 
 # アイコンリソースを別途追加（QMLモジュールとは独立）
@@ -200,3 +204,9 @@ else()
     message(STATUS "SELinux support: DISABLED")
     message(STATUS "To enable: cmake -DENABLE_SELINUX=ON")
 endif()
+
+########################################
+# Packaging (CPack)
+########################################
+
+include(cmake/packaging.cmake)

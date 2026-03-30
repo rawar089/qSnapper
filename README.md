@@ -18,14 +18,16 @@ qSnapper is a graphical user interface for the Snapper snapshot management tool.
   Support for Single, Pre, and Post snapshots  
 - **Cleanup Policies**:  
   Configure automatic cleanup using Number or Timeline algorithms  
-- **File Comparison**:  
-  View changes between snapshots with detailed diff preview  
-- **Restore Preview**:  
-  Preview files before restoring from snapshots  
+- **File Comparison**:
+  View changes between snapshots with detailed diff preview
+- **Pre/Post Snapshot Comparison**:
+  Switch between Pre and Post snapshot diffs against the current system, and restore from either snapshot independently
+- **Restore Preview**:
+  Preview files before restoring from snapshots
 - **Theme Support**:  
   Light/Dark mode switching  
-- **Internationalization**:  
-  Multi-language support (English, Japanese)  
+- **Internationalization**:
+  Multi-language support (English, Japanese, German)
 - **Modern UI**:  
   Built with Qt6 Quick/QML for a responsive user experience  
 - **Secure Operations**:  
@@ -205,12 +207,17 @@ Select a snapshot to view:
 ### Restoring from Snapshots
 
 1. Select a snapshot
-2. Click "Restore" or "Preview Changes"
-3. Review the changes that will be made
-4. Confirm the restoration
+2. Click "Show Changes" to open the Snapshot Overview
+3. Review the file changes in the tree view and diff panel
+4. Check the files/directories you want to restore
+5. Click "Restore Selected" to restore the checked items
 
-**Warning**:  
-Restoring snapshots may overwrite current data. Always review changes before confirming.  
+For Pre/Post snapshot pairs, you can:
+- Switch between Pre and Post snapshot diffs using radio buttons
+- Restore from either the Pre or Post snapshot independently using dedicated buttons
+
+**Warning**:
+Restoring snapshots may overwrite current data. Always review changes before confirming.
 
 ## Configuration
 
@@ -317,6 +324,7 @@ qSnapper/
 │   ├── fssnapshotstore.cpp   # Snapshot data store
 │   ├── snapperservice.cpp    # Snapper service interface
 │   ├── snapshotlistmodel.cpp # Snapshot list model
+│   ├── snapshotgroupmodel.cpp # Pre/Post snapshot grouping model
 │   ├── filechangemodel.cpp   # File change tree model
 │   ├── thememanager.cpp      # Theme management (Light/Dark mode)
 │   └── dbusservice/          # D-Bus service implementation
@@ -331,8 +339,12 @@ qSnapper/
 │       ├── SnapshotItem.qml
 │       ├── SnapshotDetailDialog.qml
 │       ├── RestorePreviewDialog.qml
+│       ├── SnapshotTableHeader.qml
+│       ├── SnapshotTableRow.qml
 │       ├── AboutqSnapperDialog.qml
 │       └── AboutQtDialog.qml
+├── cmake/                   # CMake modules
+│   └── packaging.cmake      # CPack packaging configuration
 ├── icons/                   # Application icons
 ├── dbus/                    # D-Bus configuration files
 ├── polkit/                  # PolicyKit policy files
@@ -347,7 +359,8 @@ qSnapper/
 │   ├── Polkit-Qt.md
 │   └── Snapper.md
 └── translations/            # Translation files
-    └── qsnapper_ja.ts       # Japanese translation
+    ├── qsnapper_ja.ts       # Japanese translation
+    └── qsnapper_de.ts       # German translation
 ```
 
 ## Contributing

@@ -26,11 +26,11 @@
       <arg name="snapshotNumber" type="i" direction="in"/>
       <arg name="changes" type="s" direction="out"/>
     </method>
-    <method name="GetFileDiff">
+    <method name="GetFileDiffAndDetails">
       <arg name="configName" type="s" direction="in"/>
       <arg name="snapshotNumber" type="i" direction="in"/>
       <arg name="filePath" type="s" direction="in"/>
-      <arg name="diff" type="s" direction="out"/>
+      <arg name="result" type="s" direction="out"/>
     </method>
     <method name="RestoreFiles">
       <arg name="configName" type="s" direction="in"/>

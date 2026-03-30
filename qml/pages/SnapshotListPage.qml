@@ -14,13 +14,20 @@ Page {
     property int selectedCount: selectedSnapshots.length       // 選択された項目数
     property alias snapshotDetailDialog: detailDialog          // 詳細ダイアログへのエイリアス
 
-    // ヘルパー関数: スナップショットの選択状態を切り替え
-    function toggleSelection(number) {
-        var index = selectedSnapshots.indexOf(number)
-        if (index >= 0) {
-            selectedSnapshots.splice(index, 1)
+    // ヘルパー関数: グループの選択状態を切り替え (Pre/Postペアは両方選択)
+    function toggleGroupSelection(preNumber, postNumber) {
+        var preIdx = selectedSnapshots.indexOf(preNumber)
+        if (preIdx >= 0) {
+            // 選択解除
+            selectedSnapshots.splice(preIdx, 1)
+            if (postNumber > 0) {
+                var postIdx = selectedSnapshots.indexOf(postNumber)
+                if (postIdx >= 0) selectedSnapshots.splice(postIdx, 1)
+            }
         } else {
-            selectedSnapshots.push(number)
+            // 選択
+            selectedSnapshots.push(preNumber)
+            if (postNumber > 0) selectedSnapshots.push(postNumber)
         }
         selectedSnapshots = selectedSnapshots  // バインディング更新をトリガー
     }
@@ -30,9 +37,9 @@ Page {
         selectedSnapshots = []
     }
 
-    // 指定された番号のスナップショットが選択されているかチェック
-    function isSelected(number) {
-        return selectedSnapshots.indexOf(number) >= 0
+    // 指定されたpreNumberのグループが選択されているかチェック
+    function isGroupSelected(preNumber) {
+        return selectedSnapshots.indexOf(preNumber) >= 0
     }
 
     // スナップショット一覧のデータモデル
@@ -73,6 +80,21 @@ Page {
         }
 
         Component.onCompleted: refresh()
+    }
+
+    // グループ化モデル (Pre/Postペアを1行にまとめる)
+    SnapshotGroupModel {
+        id: snapshotGroupModel
+        sourceModel: snapshotListModel
+    }
+
+    // テーブルカラム幅の一元管理
+    QtObject {
+        id: columnWidths
+        property int idWidth: 80
+        property int typeWidth: 140
+        property int dateWidth: 170
+        property int userdataWidth: 150
     }
 
     // ツールバーヘッダー
@@ -161,22 +183,29 @@ Page {
             font.bold: true
         }
 
-        // スナップショット一覧リストビュー
+        // テーブルヘッダー
+        SnapshotTableHeader {
+            Layout.fillWidth: true
+            columnWidths: columnWidths
+        }
+
+        // スナップショット一覧リストビュー (テーブル形式)
         ListView {
             id: listView
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
 
-            model: snapshotListModel
+            model: snapshotGroupModel
 
-            // 各スナップショット項目のデリゲート
-            delegate: SnapshotItem {
+            // 各スナップショットグループのテーブル行デリゲート
+            delegate: SnapshotTableRow {
                 width: listView.width
                 listModel: snapshotListModel
                 detailDialog: root.snapshotDetailDialog
-                selected: root.isSelected(number)
-                onSelectionToggled: root.toggleSelection(number)
+                columnWidths: columnWidths
+                selected: root.isGroupSelected(preNumber)
+                onSelectionToggled: root.toggleGroupSelection(preNumber, postNumber)
             }
 
             ScrollBar.vertical: ScrollBar {}
@@ -184,7 +213,7 @@ Page {
             // スナップショットが存在しない場合の表示
             Label {
                 anchors.centerIn: parent
-                visible: snapshotListModel.count === 0
+                visible: snapshotGroupModel.count === 0
                 text: qsTr("No snapshots available")
                 font.pixelSize: 16
                 color: palette.placeholderText
