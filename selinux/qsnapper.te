@@ -72,7 +72,6 @@ require {
     type urandom_device_t;
     type fixed_disk_device_t;
     type dri_device_t;
-    type input_device_t;
     type sound_device_t;
     type v4l_device_t;
     type usb_device_t;
@@ -695,7 +694,6 @@ allow qsnapper_t var_lib_t:file { getattr setattr open read write append create 
 allow qsnapper_t var_lib_t:lnk_file { getattr read create unlink };
 
 # Additional device access for input/sound/video
-allow qsnapper_t input_device_t:chr_file { getattr open read write ioctl };
 allow qsnapper_t sound_device_t:chr_file { getattr open read write ioctl map };
 allow qsnapper_t event_device_t:chr_file { getattr open read write ioctl };
 
