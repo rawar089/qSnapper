@@ -65,28 +65,23 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: rpm-opensuse
+          name: qsnapper-${{ needs.validate.outputs.version }}-leap16.x86_64.rpm
           path: build/*.rpm
 
-  build-rpm-rhel:
+  build-rpm-fedora:
     needs: validate
     runs-on: ubuntu-latest
     container:
-      image: almalinux:9
+      image: fedora:43
     steps:
       - uses: actions/checkout@v4
-
-      - name: Enable EPEL and CRB repositories
-        run: |
-          dnf install -y epel-release
-          dnf config-manager --set-enabled crb
 
       - name: Install dependencies
         run: |
           dnf install -y \
-            cmake gcc-c++ rpm-build \
+            cmake make gcc-c++ rpm-build \
             qt6-qtbase-devel qt6-qtdeclarative-devel \
-            qt6-linguist qt6-linguist-devel \
+            qt6-linguist \
             polkit-devel polkit-qt6-1-devel snapper-devel
 
       - name: Build
@@ -105,12 +100,12 @@ jobs:
         run: |
           cd build
           for f in *.rpm; do
-            mv "$f" "qsnapper-${{ needs.validate.outputs.version }}-el9.x86_64.rpm"
+            mv "$f" "qsnapper-${{ needs.validate.outputs.version }}-fc43.x86_64.rpm"
           done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: rpm-rhel9
+          name: qsnapper-${{ needs.validate.outputs.version }}-fc43.x86_64.rpm
           path: build/*.rpm
 
   build-deb:
@@ -125,8 +120,8 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            cmake g++ pkg-config \
-            qt6-base-dev qt6-declarative-dev qt6-l10n-tools \
+            cmake make g++ pkg-config \
+            qt6-base-dev qt6-declarative-dev linguist-qt6 \
             libpolkit-qt6-1-dev libsnapper-dev
 
       - name: Build
@@ -143,11 +138,11 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: deb-debian
+          name: qsnapper-${{ needs.validate.outputs.version }}-debian-trixie.amd64.deb
           path: build/*.deb
 
   release:
-    needs: [validate, build-rpm-opensuse, build-rpm-rhel, build-deb]
+    needs: [validate, build-rpm-opensuse, build-rpm-fedora, build-deb]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
