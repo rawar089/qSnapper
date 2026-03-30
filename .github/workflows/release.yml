@@ -81,7 +81,7 @@ jobs:
           dnf install -y \
             cmake make gcc-c++ rpm-build \
             qt6-qtbase-devel qt6-qtdeclarative-devel \
-            qt6-linguist \
+            qt6-qttools-devel \
             polkit-devel polkit-qt6-1-devel snapper-devel
 
       - name: Build
@@ -121,7 +121,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             cmake make g++ pkg-config \
-            qt6-base-dev qt6-declarative-dev linguist-qt6 \
+            qt6-base-dev qt6-declarative-dev qt6-tools-dev \
             libpolkit-qt6-1-dev libsnapper-dev
 
       - name: Build
