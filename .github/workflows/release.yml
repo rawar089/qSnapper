@@ -136,6 +136,13 @@ jobs:
           cd build
           cpack -G DEB
 
+      - name: Rename artifact
+        run: |
+          cd build
+          for f in *.deb; do
+            mv "$f" "qsnapper-${{ needs.validate.outputs.version }}-debian-trixie_amd64.deb"
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: qsnapper-${{ needs.validate.outputs.version }}-debian-trixie.amd64.deb
