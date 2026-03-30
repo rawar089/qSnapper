@@ -120,7 +120,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            cmake make g++ pkg-config \
+            cmake make g++ pkg-config file dpkg-dev \
             qt6-base-dev qt6-declarative-dev qt6-tools-dev \
             libpolkit-qt6-1-dev libsnapper-dev libboost-dev
 
