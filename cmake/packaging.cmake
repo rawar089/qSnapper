@@ -28,7 +28,15 @@ set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_APPEND
     /usr/share/dbus-1/system.d
     /usr/share/polkit-1
     /usr/share/polkit-1/actions
+    /usr/share/selinux
+    /usr/share/selinux/packages
 )
+
+# RPM SELinux scriptlets
+if(ENABLE_SELINUX)
+    set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${CMAKE_SOURCE_DIR}/cmake/rpm-post-install.sh")
+    set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE "${CMAKE_SOURCE_DIR}/cmake/rpm-pre-uninstall.sh")
+endif()
 
 # DEB settings
 set(CPACK_DEBIAN_PACKAGE_SECTION "admin")

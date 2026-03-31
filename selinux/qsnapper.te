@@ -1,4 +1,4 @@
-module qsnapper 1.0.2;
+module qsnapper 1.0.3;
 
 ########################################
 # qSnapper SELinux Policy Module
@@ -661,6 +661,65 @@ allow qsnapper_dbus_t qsnapper_t:dir { getattr open read search };
 allow qsnapper_dbus_t qsnapper_t:file { getattr open read };
 allow qsnapper_dbus_t qsnapper_t:lnk_file { getattr read };
 
+# Allow D-Bus service to read GUI executable (for process verification)
+allow qsnapper_dbus_t qsnapper_exec_t:file { getattr open read };
+
+# PolicyKit authorization D-Bus communication
+# Required for PolicyKit to respond to authorization requests
+optional {
+    require {
+        type policykit_t;
+    }
+    allow policykit_t qsnapper_dbus_t:dbus send_msg;
+    allow qsnapper_dbus_t policykit_t:dbus send_msg;
+}
+
+# Snapper's own SELinux types (when snapperd policy is installed)
+# On Leap 16.0+, snapper files are labeled with snapperd_*_t types
+# instead of generic etc_t/var_lib_t/unlabeled_t
+optional {
+    require {
+        type snapperd_conf_t;
+        type snapperd_data_t;
+        type snapperd_exec_t;
+        type snapperd_log_t;
+    }
+    # Snapper configuration (/etc/snapper/)
+    allow qsnapper_dbus_t snapperd_conf_t:dir { getattr open read search };
+    allow qsnapper_dbus_t snapperd_conf_t:file { getattr open read };
+
+    # Snapper snapshot data (/.snapshots/)
+    allow qsnapper_dbus_t snapperd_data_t:dir { add_name create getattr ioctl open read remove_name rmdir search setattr write };
+    allow qsnapper_dbus_t snapperd_data_t:file { create getattr open read rename setattr unlink write };
+
+    # Snapper executable (for process info lookup)
+    allow qsnapper_dbus_t snapperd_exec_t:file { getattr open read };
+
+    # Snapper log files
+    allow qsnapper_dbus_t snapperd_log_t:file { append getattr open };
+}
+
+# SELinux configuration access (for context lookups on some distributions)
+optional {
+    require {
+        type default_context_t;
+        type file_context_t;
+        type selinux_config_t;
+    }
+    allow qsnapper_dbus_t default_context_t:dir search;
+    allow qsnapper_dbus_t file_context_t:dir search;
+    allow qsnapper_dbus_t file_context_t:file { getattr open read };
+    allow qsnapper_dbus_t selinux_config_t:dir read;
+}
+
+# run_init_exec_t access (used on some distributions)
+optional {
+    require {
+        type run_init_exec_t;
+    }
+    allow qsnapper_dbus_t run_init_exec_t:file { getattr open read };
+}
+
 ########################################
 # Root directory and major system directories - full access
 ########################################
@@ -696,6 +755,38 @@ allow qsnapper_t var_lib_t:lnk_file { getattr read create unlink };
 # Additional device access for input/sound/video
 allow qsnapper_t sound_device_t:chr_file { getattr open read write ioctl map };
 allow qsnapper_t event_device_t:chr_file { getattr open read write ioctl };
+
+# DMA device access for GPU acceleration (Leap 16.0+)
+optional {
+    require {
+        type dma_device_t;
+    }
+    allow qsnapper_t dma_device_t:chr_file { ioctl open read write };
+}
+
+# init_var_run_t directory access (used on some distributions)
+optional {
+    require {
+        type init_var_run_t;
+    }
+    allow qsnapper_t init_var_run_t:dir search;
+}
+
+# Additional socket permissions (Leap 16.0+)
+# getopt/setopt and ioctl may not be defined on older base policies
+optional {
+    require {
+        class unix_dgram_socket { getopt setopt };
+    }
+    allow qsnapper_t self:unix_dgram_socket { getopt setopt };
+}
+
+optional {
+    require {
+        class unix_stream_socket { ioctl };
+    }
+    allow qsnapper_t unconfined_t:unix_stream_socket { getattr ioctl };
+}
 
 # D-Bus service root directory access (for qsnapper_dbus_t)
 allow qsnapper_dbus_t root_t:dir { getattr open read search };

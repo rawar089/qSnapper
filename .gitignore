@@ -102,3 +102,6 @@ packaging/
 *.bak
 *.swn
 .*.kate-swp
+
+# etc...
+selinux/qsnapper-architecture.drawio

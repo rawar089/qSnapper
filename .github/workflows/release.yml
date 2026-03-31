@@ -42,13 +42,15 @@ jobs:
             cmake gcc-c++ rpm-build \
             qt6-base-devel qt6-declarative-devel \
             qt6-quickcontrols2-devel qt6-linguist-devel \
-            polkit-devel libpolkit-qt6-1-devel libsnapper-devel
+            polkit-devel libpolkit-qt6-1-devel libsnapper-devel \
+            selinux-policy-devel
 
       - name: Build
         run: |
           cmake -B build \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_SELINUX=ON
           cmake --build build --parallel $(nproc)
 
       - name: Package RPM
@@ -82,13 +84,15 @@ jobs:
             cmake make gcc-c++ rpm-build \
             qt6-qtbase-devel qt6-qtdeclarative-devel \
             qt6-qttools-devel \
-            polkit-devel polkit-qt6-1-devel snapper-devel
+            polkit-devel polkit-qt6-1-devel snapper-devel \
+            selinux-policy-devel
 
       - name: Build
         run: |
           cmake -B build \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_SELINUX=ON
           cmake --build build --parallel $(nproc)
 
       - name: Package RPM

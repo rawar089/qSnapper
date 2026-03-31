@@ -100,8 +100,8 @@ unload:
 
 check: $(POLICY_NAME).te
 	@echo "Checking policy syntax..."
-	$(CHECKMODULE) -M -m -o $(POLICY_NAME).mod.tmp $(POLICY_NAME).te
-	@rm -f $(POLICY_NAME).mod.tmp
+	$(CHECKMODULE) -M -m -o $(POLICY_NAME).mod $(POLICY_NAME).te
+	@rm -f $(POLICY_NAME).mod
 	@echo "Syntax check passed"
 
 clean:
