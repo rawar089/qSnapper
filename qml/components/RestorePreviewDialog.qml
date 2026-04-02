@@ -10,25 +10,31 @@ Dialog {
     id: root
 
     property string configName: "root"               // Snapper設定名
-    property int snapshotNumber: 0                   // 対象スナップショット番号（現在表示中）
-    property int preSnapshotNumber: 0                // Preスナップショット番号（0 = Pre/Postペアではない）
+    property int snapshotNumber: 0                   // 対象スナップショット番号 (現在表示中) 
+    property int preSnapshotNumber: 0                // Preスナップショット番号 (0 = Pre/Postペアではない) 
     property int postSnapshotNumber: 0               // Postスナップショット番号
     readonly property bool isPrePostPair: preSnapshotNumber > 0 && postSnapshotNumber > 0
 
     signal restoreConfirmed()                        // 復元確認シグナル
 
-    // ラジオボタン切り替え時の共通処理: 右ペインのみ再描画
+    // ラジオボタン切り替え時の共通処理: ファイルツリーと右ペインを再読み込み
     function switchSnapshotView(targetNumber) {
         if (root.snapshotNumber === targetNumber) return
         root.snapshotNumber = targetNumber
         fileChangeModel.snapshotNumber = targetNumber
-        if (rightPane.fileSelected && rightPane.selectedFilePath !== "") {
-            rightPane.fileLoading = true
-            rightPane.fileDetails = {}
-            diffTextArea.textFormat = TextEdit.PlainText
-            diffTextArea.text = ""
-            fileChangeModel.getFileDiffAndDetails(rightPane.selectedFilePath)
-        }
+
+        // 右ペインの選択状態をリセット
+        rightPane.fileSelected = false
+        rightPane.selectedFilePath = ""
+        rightPane.selectedChangeType = -1
+        rightPane.selectedStatusFlags = ""
+        rightPane.fileLoading = false
+        rightPane.fileDetails = {}
+        diffTextArea.textFormat = TextEdit.PlainText
+        diffTextArea.text = ""
+
+        // ファイルツリーを再読み込み (切替先スナップショット vs 現在のシステムで比較)
+        fileChangeModel.loadChanges()
     }
 
     width: {
@@ -103,6 +109,9 @@ Dialog {
                 fileChangeModel.snapshotNumber = root.snapshotNumber
                 fileChangeModel.loadChanges()
                 successDialog.open()
+            } else {
+                // 復元失敗時のエラーフィードバック
+                restoreFailDialog.open()
             }
         }
     }
@@ -315,7 +324,7 @@ Dialog {
                                             rightPane.fileSelected = true
                                             rightPane.fileLoading = true
 
-                                            // 非同期で統合リクエスト（1回のD-Bus呼び出し）
+                                            // 非同期で統合リクエスト (1回のD-Bus呼び出し) 
                                             fileChangeModel.getFileDiffAndDetails(filePath)
                                         } else {
                                             rightPane.fileSelected = false
@@ -644,7 +653,7 @@ Dialog {
             return Math.min(Math.max(calculated, 280), 650)
         }
 
-        property int restoreTargetNumber: 0  // 復元対象のスナップショット番号（open前に明示的にセット）
+        property int restoreTargetNumber: 0  // 復元対象のスナップショット番号 (open前に明示的にセット) 
 
         ColumnLayout {
             spacing: 10
@@ -672,7 +681,7 @@ Dialog {
 
         // 復元実行
         onAccepted: {
-            // 復元対象のスナップショット番号を設定（D-Bus RestoreFilesに使用される）
+            // 復元対象のスナップショット番号を設定 (D-Bus RestoreFilesに使用される) 
             fileChangeModel.snapshotNumber = confirmRestoreDialog.restoreTargetNumber
             progressDialog.currentProgress = 0
             progressDialog.totalProgress = 0
@@ -844,6 +853,43 @@ Dialog {
 
         onAccepted: {
             root.close()
+        }
+    }
+
+    // 復元失敗ダイアログ
+    Dialog {
+        id: restoreFailDialog
+        title: qsTr("Restore Failed")
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        standardButtons: Dialog.Ok
+        width: {
+            if (!ApplicationWindow.window) return 500
+            var calculated = ApplicationWindow.window.width * 0.4
+            return Math.min(Math.max(calculated, 500), 800)
+        }
+        height: {
+            if (!ApplicationWindow.window) return 220
+            var calculated = ApplicationWindow.window.height * 0.3
+            return Math.min(Math.max(calculated, 220), 600)
+        }
+
+        ColumnLayout {
+            spacing: 10
+
+            Label {
+                text: qsTr("Failed to restore some or all files.")
+                font.bold: true
+                wrapMode: Text.WordWrap
+                Layout.preferredWidth: 400
+            }
+
+            Label {
+                text: qsTr("The files may already be in sync with the snapshot, or an error occurred during restoration. Check the system log for details.")
+                wrapMode: Text.WordWrap
+                Layout.preferredWidth: 400
+                color: ThemeManager.warningColor
+            }
         }
     }
 }

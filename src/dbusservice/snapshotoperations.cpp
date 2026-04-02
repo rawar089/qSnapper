@@ -17,7 +17,7 @@
 #include <snapper/Exception.h>
 #include <snapper/Version.h>
 
-// 古いlibsnapper（7.x未満）には LIBSNAPPER_VERSION_AT_LEAST マクロが存在しない
+// 古いlibsnapper (7.x未満) には LIBSNAPPER_VERSION_AT_LEAST マクロが存在しない
 #ifndef LIBSNAPPER_VERSION_AT_LEAST
 #define LIBSNAPPER_VERSION_AT_LEAST(major, minor)                                            \
     ((LIBSNAPPER_VERSION_MAJOR > (major)) ||                                                 \
@@ -553,7 +553,7 @@ QString SnapshotOperations::GetFileDiffAndDetails(const QString &configName, int
             return QString();
         }
 
-        // Comparisonオブジェクトを1回だけ作成（スナップショットマウントも1回のみ）
+        // Comparisonオブジェクトを1回だけ作成 (スナップショットマウントも1回のみ) 
         snapper::Comparison comparison(snapper, snapshot1, snapshot2, true);
         const snapper::Files &files = comparison.getFiles();
 
@@ -674,7 +674,7 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
         snapper::Comparison comparison(snapper, snapshot1, snapshot2, true);
         snapper::Files &files = comparison.getFiles();
 
-        // まず、バッチ内の全ファイルをundoフラグでマーク（差分があるファイルのみ）
+        // まず、バッチ内の全ファイルをundoフラグでマーク (差分があるファイルのみ) 
         QStringList notFoundFiles;
         QStringList noDiffFiles;
         int markedCount = 0;
@@ -703,9 +703,10 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
         // undoフラグが立っているファイルのUndoStepsを一度に取得
         std::vector<snapper::UndoStep> undoSteps = comparison.getUndoSteps();
 
-        // undoStepsが空の場合は、差分がない（既に復元済みまたはディレクトリのみ）と判断
+        // undoStepsが空の場合の処理
         if (undoSteps.empty()) {
-            qWarning() << "No undo steps generated. Files may already be in sync or are directories. Marked files:" << markedCount;
+            qWarning() << "No undo steps generated. Marked files:" << markedCount
+                       << "Not found:" << notFoundFiles.size();
 
             // undoフラグをクリア
             for (const QString &filePath : filePaths) {
@@ -715,7 +716,16 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
                 }
             }
 
-            // エラーではなく成功として扱う（差分がないため復元不要）
+            if (markedCount == 0) {
+                // ファイルが比較結果に見つからなかった (既に復元済み等)
+                QString errorMsg = QString("No files found in comparison. Files may already be restored or in sync with snapshot.");
+                qWarning() << errorMsg;
+                sendErrorReply(QDBusError::Failed, errorMsg);
+                return false;
+            }
+
+            // markedCount > 0 だが undoSteps が空: 差分がないため復元不要
+            // 成功として扱う
             return true;
         }
 
@@ -759,7 +769,7 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
 
         qWarning() << "RestoreFiles: Completed. Successful:" << successCount << "Failed:" << (total - successCount);
 
-        // notFoundFilesは警告のみ（ディレクトリや差分のないファイルの可能性）
+        // notFoundFilesは警告のみ (ディレクトリや差分のないファイルの可能性) 
         if (!notFoundFiles.isEmpty()) {
             qWarning() << "Some files were not found in comparison (may be directories or already in sync):" << notFoundFiles.size();
         }

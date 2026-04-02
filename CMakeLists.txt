@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(qsnapper VERSION 1.1.2 LANGUAGES CXX)
+project(qsnapper VERSION 1.1.3 LANGUAGES CXX)
 
 # Linux専用プロジェクト - 他のプラットフォームでは明示的にエラーを出す
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -63,7 +63,7 @@ qt6_add_qml_module(qsnapper
         qml/components/SnapshotTableRow.qml
 )
 
-# アイコンリソースを別途追加（QMLモジュールとは独立）
+# アイコンリソースを別途追加 (QMLモジュールとは独立)
 qt6_add_resources(qsnapper "icons"
     PREFIX "/QSnapper"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -122,7 +122,7 @@ target_link_libraries(qsnapper-dbus-service PRIVATE
     snapper
 )
 
-# libsnapperバージョン検出（Version.hから抽出）
+# libsnapperバージョン検出 (Version.hから抽出)
 find_path(SNAPPER_INCLUDE_DIR snapper/Version.h)
 if(SNAPPER_INCLUDE_DIR)
     file(STRINGS "${SNAPPER_INCLUDE_DIR}/snapper/Version.h" _ver_major
@@ -138,7 +138,7 @@ else()
     set(SNAPPER_VERSION_MINOR 0)
 endif()
 
-# ログ出力ディレクトリ（-DQSNAPPER_LOG_DIR=/path/to/dir で変更可能）
+# ログ出力ディレクトリ (-DQSNAPPER_LOG_DIR=/path/to/dir で変更可能)
 set(QSNAPPER_LOG_DIR "/var/log/qsnapper" CACHE PATH "Log directory for qsnapper-dbus-service")
 message(STATUS "Log directory: ${QSNAPPER_LOG_DIR}")
 
@@ -152,7 +152,7 @@ install(TARGETS qsnapper-dbus-service
     RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}
 )
 
-# D-Busサービス設定ファイル（ビルド時にパスを動的生成）
+# D-Busサービス設定ファイル (ビルド時にパスを動的生成)
 configure_file(
     dbus/com.presire.qsnapper.Operations.service.in
     com.presire.qsnapper.Operations.service
