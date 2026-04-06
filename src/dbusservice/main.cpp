@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
     QCoreApplication app(argc, argv);
     app.setOrganizationName("Presire");
     app.setApplicationName("qSnapper D-Bus Service");
-    app.setApplicationVersion("1.1.3");
+    app.setApplicationVersion("1.1.4");
 
     // D-Busシステムバスに接続
     QDBusConnection connection = QDBusConnection::systemBus();
