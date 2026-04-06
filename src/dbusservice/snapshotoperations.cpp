@@ -917,7 +917,7 @@ bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snaps
 
                     // パーミッションをコピー
                     QProcess chmodProc;
-                    QString mode = QString("%1").arg(snapshotFileInfo.permissions() & 0x0FFF, 4, 8, QChar('0'));
+                    QString mode = QString("%1").arg(static_cast<int>(snapshotFileInfo.permissions() & 0x0FFF), 4, 8, QChar('0'));
                     // QFileInfo::permissions()はQFile::Permissionsなので変換
                     QProcess statProc;
                     statProc.start("/usr/bin/stat", QStringList() << "-c" << "%a" << snapshotFilePath);
