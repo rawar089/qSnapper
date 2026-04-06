@@ -24,6 +24,8 @@ qSnapper is a graphical user interface for the Snapper snapshot management tool.
   Switch between Pre and Post snapshot diffs against the current system, and restore from either snapshot independently
 - **Restore Preview**:
   Preview files before restoring from snapshots
+- **Fast Restore**:
+  Two restore modes — Direct Copy (fast, btrfs reflink-aware) and YaST compatible — with configurable batch size and real-time progress logging
 - **Theme Support**:  
   Light/Dark mode switching  
 - **Internationalization**:
@@ -39,34 +41,40 @@ qSnapper is a graphical user interface for the Snapper snapshot management tool.
 
 The main window displays all available snapshots with detailed information including snapshot number, type, timestamp, and description.  
 
-![Main Snapshot List](ScreenShot/01_main_snapshot_list.png)  
+<p align="center"><img src="ScreenShot/01_main_snapshot_list.png" width="600" alt="Main Snapshot List"></p>  
 
 ### Create Snapshot Dialog
 
 Create new snapshots with customizable options including snapshot type (Single/Pre/Post),  
 description, and cleanup algorithm.  
 
-![Create Snapshot Dialog](ScreenShot/02_create_snapshot_dialog.png)  
+<p align="center"><img src="ScreenShot/02_create_snapshot_dialog.png" width="600" alt="Create Snapshot Dialog"></p>  
 
 ### Snapshot Detail Dialog
 
 View detailed information about a specific snapshot,  
 including file changes, metadata, and available actions.  
 
-![Snapshot Detail Dialog](ScreenShot/03_snapshot_detail_dialog.png)  
+<p align="center"><img src="ScreenShot/03_snapshot_detail_dialog.png" width="600" alt="Snapshot Detail Dialog"></p>  
 
 ### Restore Preview Dialog
 
 Preview file changes before restoring from a snapshot.  
 This helps you understand what will be modified.  
 
-![Restore Preview Dialog](ScreenShot/04_restore_preview_dialog.png)
+<p align="center"><img src="ScreenShot/04_restore_preview_dialog.png" width="600" alt="Restore Preview Dialog"></p>
+
+### Restore Settings Dialog
+
+Configure the restore method (Direct Copy or YaST compatible) and batch size before restoring files.  
+
+<p align="center"><img src="ScreenShot/06_restore_settings_dialog.png" width="600" alt="Restore Settings Dialog"></p>
 
 ### Delete Snapshot Dialog
 
 Confirm snapshot deletion with a safety dialog that shows which snapshot will be removed.  
 
-![Delete Snapshot Dialog](ScreenShot/05_delete_snapshot_dialog.png)
+<p align="center"><img src="ScreenShot/05_delete_snapshot_dialog.png" width="600" alt="Delete Snapshot Dialog"></p>
 
 ## Requirements
 
@@ -216,8 +224,27 @@ For Pre/Post snapshot pairs, you can:
 - Switch between Pre and Post snapshot diffs using radio buttons
 - Restore from either the Pre or Post snapshot independently using dedicated buttons
 
-**Warning**:
-Restoring snapshots may overwrite current data. Always review changes before confirming.
+#### Restore Modes
+
+qSnapper offers two restore methods, selectable from the restore confirmation dialog:  
+
+- **Direct Copy (fast)** (default):  
+  Copies files directly from the mounted snapshot using `cp -a --reflink=auto`.  
+  On Btrfs, reflink enables near-instant copy-on-write regardless of file size.  
+
+- **YaST compatible**:  
+  Uses the same restore approach as YaST's "Filesystem Snapshots" module (`cp -a` without reflink).  
+  Use this mode if you experience compatibility issues with the Direct Copy method.  
+
+#### Restore Options
+
+- **Batch size** (1–1000, default: 100):  
+  Number of files processed per batch. Larger values may improve throughput; smaller values provide more granular progress feedback.  
+
+During restoration, a real-time progress log displays each file as it is restored, with automatic scrolling.  
+
+**Warning**:  
+Restoring snapshots may overwrite current data. Always review changes before confirming.  
 
 ## Configuration
 
@@ -244,6 +271,8 @@ Application settings are stored in:
 Settings include:  
 - Theme mode (Light or Dark)
 - Window geometry and state
+- Restore method (Direct Copy or YaST compatible)
+- Restore batch size (1–1000)
 - User preferences
 
 ### Theme Configuration

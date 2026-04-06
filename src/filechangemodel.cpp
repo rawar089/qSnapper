@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QDBusConnection>
 #include <QDBusReply>
 #include <QDBusError>
@@ -172,7 +173,14 @@ FileChangeModel::FileChangeModel(QObject *parent)
     , m_processedFilesCount(0)
     , m_restoreHasError(false)
     , m_cancelRequested(false)
+    , m_restoreBatchSize(100)
+    , m_useDirectRestore(true)
 {
+    // 復元設定をQSettingsから読み込み
+    QSettings settings("Presire", "qSnapper");
+    m_restoreBatchSize = qBound(1, settings.value("restore/batchSize", 100).toInt(), 1000);
+    m_useDirectRestore = settings.value("restore/useDirectMethod", true).toBool();
+
     m_rootItem = new FileChangeItem("", FileChangeItem::Modified);
 
     m_dbusInterface = new QDBusInterface(
@@ -249,7 +257,7 @@ void FileChangeModel::setSnapshotNumber(int number)
 }
 
 /**
- * @brief ファイル変更リストを読み込み（非同期）
+ * @brief ファイル変更リストを読み込み (非同期) 
  *
  * D-Bus経由でSnapperからファイル変更リストを非同期で取得し、モデルを構築します。
  * 読み込み中はloadingプロパティがtrueになります。
@@ -390,9 +398,22 @@ void FileChangeModel::restoreSingleFile(const QString &filePath)
     QStringList filePaths;
     filePaths << filePath;
 
-    // 非同期でRestoreFilesを呼び出し
-    QDBusPendingCall pendingCall = m_dbusInterface->asyncCall("RestoreFiles", m_configName, m_snapshotNumber, filePaths);
-    QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall, this);
+    // ツリーからchangeTypeを取得
+    QString changeType = QStringLiteral("modified");
+    QModelIndex idx = findItemIndex(m_rootItem, filePath);
+    if (idx.isValid()) {
+        FileChangeItem *item = getItem(idx);
+        if (item) {
+            changeType = changeTypeToString(item->changeType());
+        }
+    }
+    QStringList changeTypes;
+    changeTypes << changeType;
+
+    // 復元方式に応じたD-Busメソッドを呼び出し
+    QString methodName = m_useDirectRestore ? "RestoreFilesDirect" : "RestoreFiles";
+    QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(
+        m_dbusInterface->asyncCall(methodName, m_configName, m_snapshotNumber, filePaths, changeTypes), this);
 
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher]() {
         QDBusPendingReply<bool> reply = *watcher;
@@ -713,38 +734,6 @@ void FileChangeModel::setupModelData(const QStringList &changes)
 }
 
 /**
- * @brief ツリー構造をダンプ (デバッグ用)
- *
- * デバッグ目的でツリー構造を出力します。指定された深さまで再帰的に表示します。
- *
- * @param item ダンプ開始アイテム
- * @param depth 現在の深さ
- * @param maxDepth 最大深さ
- */
-void FileChangeModel::dumpTree(FileChangeItem *item, int depth, int maxDepth)
-{
-    if (!item || depth > maxDepth) {
-        return;
-    }
-
-    QString indent = QString("  ").repeated(depth);
-    QString icon = item->isDirectory() ? "DIR" : "FILE";
-    QString name = item->name().isEmpty() ? "(root)" : item->name();
-
-    qDebug().noquote() << indent << icon << name
-                       << "children:" << item->childCount()
-                       << "path:" << item->path();
-
-    for (int i = 0; i < item->childCount() && i < 5; ++i) {
-        dumpTree(item->child(i), depth + 1, maxDepth);
-    }
-
-    if (item->childCount() > 5) {
-        qDebug().noquote() << indent << "  ... and" << (item->childCount() - 5) << "more children";
-    }
-}
-
-/**
  * @brief モデルをクリア
  *
  * ルートアイテムを削除して新しいルートアイテムを作成し、モデルをリセットします。
@@ -796,30 +785,6 @@ FileChangeItem::ChangeType FileChangeModel::parseChangeType(const QChar &statusC
     default:
         return FileChangeItem::Modified;
     }
-}
-
-/**
- * @brief コマンドを実行
- *
- * 指定されたコマンドと引数を実行し、標準出力を返します。
- *
- * @param command 実行するコマンド
- * @param arguments コマンドの引数リスト
- * @return コマンドの標準出力 (失敗時は空文字列)
- */
-QString FileChangeModel::executeCommand(const QString &command, const QStringList &arguments)
-{
-    QProcess process;
-    process.start(command, arguments);
-    process.waitForFinished();
-
-    if (process.exitCode() != 0) {
-        QString errorMsg = process.readAllStandardError();
-        qWarning() << "Command failed:" << command << arguments << "Error:" << errorMsg;
-        return QString();
-    }
-
-    return process.readAllStandardOutput();
 }
 
 /**
@@ -948,6 +913,76 @@ QStringList FileChangeModel::getCheckedItems() const
     return sortedPaths;
 }
 
+void FileChangeModel::setRestoreBatchSize(int size)
+{
+    size = qBound(1, size, 1000);
+    if (m_restoreBatchSize != size) {
+        m_restoreBatchSize = size;
+        QSettings settings("Presire", "qSnapper");
+        settings.setValue("restore/batchSize", m_restoreBatchSize);
+        emit restoreBatchSizeChanged();
+    }
+}
+
+void FileChangeModel::setUseDirectRestore(bool use)
+{
+    if (m_useDirectRestore != use) {
+        m_useDirectRestore = use;
+        QSettings settings("Presire", "qSnapper");
+        settings.setValue("restore/useDirectMethod", m_useDirectRestore);
+        emit useDirectRestoreChanged();
+    }
+}
+
+QString FileChangeModel::changeTypeToString(FileChangeItem::ChangeType type)
+{
+    switch (type) {
+    case FileChangeItem::Created:     return QStringLiteral("created");
+    case FileChangeItem::Deleted:     return QStringLiteral("deleted");
+    case FileChangeItem::Modified:    return QStringLiteral("modified");
+    case FileChangeItem::TypeChanged: return QStringLiteral("typechanged");
+    }
+    return QStringLiteral("modified");
+}
+
+void FileChangeModel::collectCheckedItemsWithTypes(FileChangeItem *parent, QStringList &paths, QStringList &changeTypes) const
+{
+    for (int i = 0; i < parent->childCount(); ++i) {
+        FileChangeItem *child = parent->child(i);
+
+        if (child->isChecked()) {
+            QString itemPath = child->path();
+
+            // パスを正規化 (末尾のスラッシュを削除)
+            if (itemPath.endsWith('/') && itemPath.length() > 1) {
+                itemPath = itemPath.left(itemPath.length() - 1);
+            }
+
+            bool hasChildren = (child->childCount() > 0);
+            bool isActualChange = (child->changeType() != FileChangeItem::Modified);
+
+            if (hasChildren) {
+                // 子要素があるアイテム = ディレクトリ
+                if (isActualChange && !itemPath.isEmpty() && itemPath != "/") {
+                    paths.append(itemPath);
+                    changeTypes.append(changeTypeToString(child->changeType()));
+                }
+                // 配下を再帰的に収集 (collectAllFilesRecursiveと同等の処理)
+                collectCheckedItemsWithTypes(child, paths, changeTypes);
+            }
+            else {
+                if (!itemPath.isEmpty() && itemPath != "/") {
+                    paths.append(itemPath);
+                    changeTypes.append(changeTypeToString(child->changeType()));
+                }
+            }
+        }
+        else {
+            collectCheckedItemsWithTypes(child, paths, changeTypes);
+        }
+    }
+}
+
 /**
  * @brief チェックされたアイテムを復元
  *
@@ -958,7 +993,26 @@ QStringList FileChangeModel::getCheckedItems() const
  */
 bool FileChangeModel::restoreCheckedItems()
 {
-    QStringList checkedPaths = getCheckedItems();
+    // 両方のモードでchangeTypeを収集する (RestoreFiles/RestoreFilesDirect共にchangeTypes必須)
+    QStringList checkedPaths;
+    QStringList checkedChangeTypes;
+
+    collectCheckedItemsWithTypes(m_rootItem, checkedPaths, checkedChangeTypes);
+    // 重複除外 (パスとchangeTypeのペアを保持)
+    {
+        QSet<QString> seen;
+        QStringList uniquePaths;
+        QStringList uniqueChangeTypes;
+        for (int i = 0; i < checkedPaths.size(); ++i) {
+            if (!seen.contains(checkedPaths[i])) {
+                seen.insert(checkedPaths[i]);
+                uniquePaths.append(checkedPaths[i]);
+                uniqueChangeTypes.append(checkedChangeTypes[i]);
+            }
+        }
+        checkedPaths = uniquePaths;
+        checkedChangeTypes = uniqueChangeTypes;
+    }
 
     if (checkedPaths.isEmpty()) {
         emit errorOccurred(tr("No files selected for restoration"));
@@ -993,21 +1047,24 @@ bool FileChangeModel::restoreCheckedItems()
     }
 
     // ファイルリストをバッチに分割して順次処理
-    // 1バッチあたり100ファイルに制限 (D-Busタイムアウトを回避)
     m_restoreBatches.clear();
+    m_restoreBatchChangeTypes.clear();
     m_currentBatchIndex = 0;
     m_totalFilesCount = checkedPaths.size();
     m_processedFilesCount = 0;
     m_restoreHasError = false;
     m_cancelRequested = false;
 
-    const int batchSize = 100;
+    const int batchSize = m_restoreBatchSize;
     for (int i = 0; i < checkedPaths.size(); i += batchSize) {
-        QStringList batch;
+        QStringList batchPaths;
+        QStringList batchTypes;
         for (int j = i; j < qMin(i + batchSize, checkedPaths.size()); ++j) {
-            batch.append(checkedPaths[j]);
+            batchPaths.append(checkedPaths[j]);
+            batchTypes.append(checkedChangeTypes[j]);
         }
-        m_restoreBatches.append(batch);
+        m_restoreBatches.append(batchPaths);
+        m_restoreBatchChangeTypes.append(batchTypes);
     }
 
     // 最初のバッチを処理
@@ -1062,9 +1119,10 @@ void FileChangeModel::processNextBatch()
         "com.presire.qsnapper.Operations",
         "/com/presire/qsnapper/Operations",
         "com.presire.qsnapper.Operations",
-        "RestoreFiles"
+        m_useDirectRestore ? "RestoreFilesDirect" : "RestoreFiles"
     );
-    msg << m_configName << m_snapshotNumber << batch;
+    QStringList batchChangeTypes = m_restoreBatchChangeTypes[m_currentBatchIndex];
+    msg << m_configName << m_snapshotNumber << batch << batchChangeTypes;
 
     QDBusPendingCall pendingCall = QDBusConnection::systemBus().asyncCall(msg, -1);
     QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall, this);

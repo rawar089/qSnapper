@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
     app.setOrganizationName("Presire");
     app.setOrganizationDomain("https://github.com/presire");
     app.setApplicationName("qSnapper");
-    app.setApplicationVersion("1.1.4");
+    app.setApplicationVersion(QSNAPPER_VERSION);
     app.setWindowIcon(QIcon(":QSnapper/icons/qSnapper.png"));
 
     // 翻訳システムの設定

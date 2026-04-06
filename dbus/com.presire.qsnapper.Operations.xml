@@ -36,6 +36,14 @@
       <arg name="configName" type="s" direction="in"/>
       <arg name="snapshotNumber" type="i" direction="in"/>
       <arg name="filePaths" type="as" direction="in"/>
+      <arg name="changeTypes" type="as" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="RestoreFilesDirect">
+      <arg name="configName" type="s" direction="in"/>
+      <arg name="snapshotNumber" type="i" direction="in"/>
+      <arg name="filePaths" type="as" direction="in"/>
+      <arg name="changeTypes" type="as" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
     <method name="Quit"/>

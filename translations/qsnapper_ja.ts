@@ -446,6 +446,126 @@
         <source>No more differences with snapshot.</source>
         <translation>スナップショットとの差分がなくなりました。</translation>
     </message>
+    <message>
+        <source>Restore Options</source>
+        <translation>復元オプション</translation>
+    </message>
+    <message>
+        <source>Method:</source>
+        <translation>方式:</translation>
+    </message>
+    <message>
+        <source>Direct copy (fast)</source>
+        <translation>ダイレクトコピー (高速)</translation>
+    </message>
+    <message>
+        <source>YaST compatible</source>
+        <translation>YaST互換</translation>
+    </message>
+    <message>
+        <source>Batch size:</source>
+        <translation>バッチサイズ:</translation>
+    </message>
+    <message>
+        <source>files per batch</source>
+        <translation>ファイル/バッチ</translation>
+    </message>
+    <message>
+        <source>Loading file changes. Please wait...</source>
+        <translation>ファイルの変更を読み込み中です。しばらくお待ちください...</translation>
+    </message>
+    <message>
+        <source>Show differences between snapshot #%1 (Pre) and the current system</source>
+        <translation>スナップショット #%1 (事前) と現在のシステムとの差分を表示</translation>
+    </message>
+    <message>
+        <source>Show differences between snapshot #%1 (Post) and the current system</source>
+        <translation>スナップショット #%1 (事後) と現在のシステムとの差分を表示</translation>
+    </message>
+    <message>
+        <source>New file was created.</source>
+        <translation>新しいファイルが作成されました。</translation>
+    </message>
+    <message>
+        <source>File content was modified.</source>
+        <translation>ファイルの内容が変更されました。</translation>
+    </message>
+    <message>
+        <source>File was removed.</source>
+        <translation>ファイルが削除されました。</translation>
+    </message>
+    <message>
+        <source>File type was changed.</source>
+        <translation>ファイルの種類が変更されました。</translation>
+    </message>
+    <message>
+        <source>Select a file to view details</source>
+        <translation>ファイルを選択して詳細を表示</translation>
+    </message>
+    <message>
+        <source>Loading file details...</source>
+        <translation>ファイルの詳細を読み込み中...</translation>
+    </message>
+    <message>
+        <source>File Status</source>
+        <translation>ファイルの状態</translation>
+    </message>
+    <message>
+        <source>File mode was changed from &apos;%1&apos; to &apos;%2&apos;.</source>
+        <translation>ファイルモードが &apos;%1&apos; から &apos;%2&apos; に変更されました。</translation>
+    </message>
+    <message>
+        <source>File user ownership was changed from &apos;%1&apos; to &apos;%2&apos;.</source>
+        <translation>ファイルのユーザー所有者が &apos;%1&apos; から &apos;%2&apos; に変更されました。</translation>
+    </message>
+    <message>
+        <source>File group ownership was changed from &apos;%1&apos; to &apos;%2&apos;.</source>
+        <translation>ファイルのグループ所有者が &apos;%1&apos; から &apos;%2&apos; に変更されました。</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>削除</translation>
+    </message>
+    <message>
+        <source>Restore</source>
+        <translation>復元</translation>
+    </message>
+    <message>
+        <source>Restore from Pre #%1</source>
+        <translation>事前 #%1 から復元</translation>
+    </message>
+    <message>
+        <source>Restore from Post #%1</source>
+        <translation>事後 #%1 から復元</translation>
+    </message>
+    <message>
+        <source>Remove this file from the current system?</source>
+        <translation>このファイルを現在のシステムから削除しますか？</translation>
+    </message>
+    <message>
+        <source>Restore this file from snapshot #%1?</source>
+        <translation>このファイルをスナップショット #%1 から復元しますか？</translation>
+    </message>
+    <message>
+        <source>Warning: This file will be deleted from the current system.</source>
+        <translation>注意: このファイルは現在のシステムから削除されます。</translation>
+    </message>
+    <message>
+        <source>Warning: The current file will be overwritten.</source>
+        <translation>注意: 現在のファイルが上書きされます。</translation>
+    </message>
+    <message>
+        <source>Restore Failed</source>
+        <translation>復元失敗</translation>
+    </message>
+    <message>
+        <source>Failed to restore some or all files.</source>
+        <translation>一部またはすべてのファイルの復元に失敗しました。</translation>
+    </message>
+    <message>
+        <source>The files may already be in sync with the snapshot, or an error occurred during restoration. Check the system log for details.</source>
+        <translation>ファイルが既にスナップショットと同期しているか、復元中にエラーが発生した可能性があります。詳細はシステムログを確認してください。</translation>
+    </message>
 </context>
 <context>
     <name>AboutQtDialog</name>

@@ -89,6 +89,7 @@ Dialog {
             progressDialog.currentFile = filePath
             progressDialog.currentProgress = current
             progressDialog.totalProgress = total
+            progressDialog.restoreLog += filePath + "\n"
         }
 
         // 復元完了ハンドラ
@@ -162,8 +163,8 @@ Dialog {
             visible: root.isPrePostPair
             Layout.fillWidth: true
 
-            RowLayout {
-                spacing: 20
+            ColumnLayout {
+                spacing: 4
 
                 RadioButton {
                     id: preRadioButton
@@ -648,12 +649,12 @@ Dialog {
             return Math.min(Math.max(calculated, 550), 850)
         }
         height: {
-            if (!ApplicationWindow.window) return 280
-            var calculated = ApplicationWindow.window.height * 0.35
-            return Math.min(Math.max(calculated, 280), 650)
+            if (!ApplicationWindow.window) return 380
+            var calculated = ApplicationWindow.window.height * 0.45
+            return Math.min(Math.max(calculated, 380), 750)
         }
 
-        property int restoreTargetNumber: 0  // 復元対象のスナップショット番号 (open前に明示的にセット) 
+        property int restoreTargetNumber: 0  // 復元対象のスナップショット番号 (open前に明示的にセット)
 
         ColumnLayout {
             spacing: 10
@@ -677,15 +678,65 @@ Dialog {
                 color: ThemeManager.warningColor
                 font.italic: true
             }
+
+            // 復元オプション
+            GroupBox {
+                title: qsTr("Restore Options")
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    spacing: 8
+
+                    // 復元方式選択
+                    RowLayout {
+                        spacing: 10
+                        Label {
+                            text: qsTr("Method:")
+                        }
+                        RadioButton {
+                            id: directRestoreRadio
+                            text: qsTr("Direct copy (fast)")
+                            checked: fileChangeModel.useDirectRestore
+                            onToggled: fileChangeModel.useDirectRestore = checked
+                        }
+                        RadioButton {
+                            text: qsTr("YaST compatible")
+                            checked: !fileChangeModel.useDirectRestore
+                            onToggled: fileChangeModel.useDirectRestore = !checked
+                        }
+                    }
+
+                    // バッチサイズ設定
+                    RowLayout {
+                        spacing: 10
+                        Label {
+                            text: qsTr("Batch size:")
+                        }
+                        SpinBox {
+                            id: batchSizeSpinBox
+                            from: 1
+                            to: 1000
+                            value: fileChangeModel.restoreBatchSize
+                            editable: true
+                            onValueModified: fileChangeModel.restoreBatchSize = value
+                        }
+                        Label {
+                            text: qsTr("files per batch")
+                            color: palette.text
+                        }
+                    }
+                }
+            }
         }
 
         // 復元実行
         onAccepted: {
-            // 復元対象のスナップショット番号を設定 (D-Bus RestoreFilesに使用される) 
+            // 復元対象のスナップショット番号を設定 (D-Bus RestoreFilesに使用される)
             fileChangeModel.snapshotNumber = confirmRestoreDialog.restoreTargetNumber
             progressDialog.currentProgress = 0
             progressDialog.totalProgress = 0
             progressDialog.currentFile = ""
+            progressDialog.restoreLog = ""
             progressDialog.open()
             fileChangeModel.restoreCheckedItems()
         }
@@ -704,18 +755,19 @@ Dialog {
             return Math.min(Math.max(calculated, 550), 850)
         }
         height: {
-            if (!ApplicationWindow.window) return 350
-            var calculated = ApplicationWindow.window.height * 0.4
-            return Math.min(Math.max(calculated, 350), 700)
+            if (!ApplicationWindow.window) return 450
+            var calculated = ApplicationWindow.window.height * 0.5
+            return Math.min(Math.max(calculated, 450), 800)
         }
         standardButtons: Dialog.Cancel
 
         property int currentProgress: 0              // 現在の進捗
         property int totalProgress: 0                // 総ファイル数
         property string currentFile: ""              // 現在処理中のファイル
+        property string restoreLog: ""               // 復元ログテキスト
 
         contentItem: ColumnLayout {
-            spacing: 15
+            spacing: 10
 
             // 進捗メッセージ
             Label {
@@ -737,6 +789,34 @@ Dialog {
                 Layout.fillWidth: true
                 text: qsTr("Progress: %1 / %2").arg(progressDialog.currentProgress).arg(progressDialog.totalProgress)
                 color: palette.text
+            }
+
+            // 復元済みファイルのログ表示
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+
+                TextArea {
+                    id: restoreLogArea
+                    readOnly: true
+                    text: progressDialog.restoreLog
+                    wrapMode: TextEdit.NoWrap
+                    font.pixelSize: 11
+                    font.family: "monospace"
+                    color: palette.text
+                    background: Rectangle {
+                        color: palette.base
+                        border.color: palette.mid
+                        border.width: 1
+                    }
+
+                    // 新しいテキスト追加時に最下行に自動スクロール
+                    onTextChanged: {
+                        cursorPosition = text.length
+                    }
+                }
             }
 
             // 現在処理中のファイル名表示

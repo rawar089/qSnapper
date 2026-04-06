@@ -640,7 +640,8 @@ QString SnapshotOperations::GetFileDiffAndDetails(const QString &configName, int
  * @param filePaths 復元するファイルパスのリスト
  * @return 全ファイルの復元が成功した場合true、それ以外はfalse
  */
-bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNumber, const QStringList &filePaths)
+bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNumber,
+                                      const QStringList &filePaths, const QStringList &changeTypes)
 {
     if (!checkAuthorization("com.presire.qsnapper.rollback-snapshot")) {
         return false;
@@ -651,145 +652,342 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
         return false;
     }
 
-    qWarning() << "RestoreFiles: Starting restore for" << filePaths.size() << "files from snapshot" << snapshotNumber;
+    if (filePaths.size() != changeTypes.size()) {
+        sendErrorReply(QDBusError::InvalidArgs, "filePaths and changeTypes must have the same size");
+        return false;
+    }
+
+    qWarning() << "RestoreFiles (YaST compatible): Starting restore for" << filePaths.size()
+               << "files from snapshot" << snapshotNumber;
 
     try {
         snapper::Snapper *snapper = getSnapper(configName);
         if (!snapper) {
-            qWarning() << "Failed to get Snapper instance";
             sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
             return false;
         }
 
         snapper::Snapshots::const_iterator snapshot1 = snapper->getSnapshots().find(snapshotNumber);
-        snapper::Snapshots::const_iterator snapshot2 = snapper->getSnapshotCurrent();
-
         if (snapshot1 == snapper->getSnapshots().end()) {
-            qWarning() << "Snapshot not found:" << snapshotNumber;
             sendErrorReply(QDBusError::Failed, "Snapshot not found");
             return false;
         }
 
-        // Comparisonオブジェクトを作成 (スナップショットをマウント)
-        snapper::Comparison comparison(snapper, snapshot1, snapshot2, true);
-        snapper::Files &files = comparison.getFiles();
+        // スナップショットをマウント
+        snapshot1->mountFilesystemSnapshot(true);
 
-        // まず、バッチ内の全ファイルをundoフラグでマーク (差分があるファイルのみ) 
-        QStringList notFoundFiles;
-        QStringList noDiffFiles;
-        int markedCount = 0;
+        // スナップショットディレクトリのパスを取得
+        QString snapshotDir = QString::fromStdString(snapshot1->snapshotDir());
 
-        for (const QString &filePath : filePaths) {
-            auto fileIt = files.findAbsolutePath(filePath.toStdString());
+        qWarning() << "RestoreFiles: Snapshot mounted at" << snapshotDir;
 
-            if (fileIt == files.end()) {
-                // 代替検索：名前だけで検索
-                auto fileIt2 = files.find(filePath.toStdString());
-                if (fileIt2 != files.end()) {
-                    fileIt2->setUndo(true);
-                    markedCount++;
-                }
-                else {
-                    // ディレクトリまたは差分のないファイルの可能性
-                    notFoundFiles.append(filePath);
+        bool allSuccess = true;
+        int total = filePaths.size();
+        int successCount = 0;
+
+        for (int i = 0; i < total; ++i) {
+            const QString &filePath = filePaths[i];
+            const QString &changeType = changeTypes[i];
+
+            // 進捗を通知
+            emit restoreProgress(i + 1, total, filePath);
+
+            // スナップショット内のファイルパス
+            QString snapshotFilePath = snapshotDir + filePath;
+            // システム上のファイルパス
+            QString systemFilePath = filePath;
+
+            bool fileSuccess = false;
+
+            if (changeType == "created") {
+                // スナップショット時点では存在しなかったファイル → 削除 (YaST: rm -rf)
+                QProcess proc;
+                proc.start("/bin/rm", QStringList() << "-rf" << "--" << systemFilePath);
+                proc.waitForFinished(30000);
+                fileSuccess = (proc.exitCode() == 0);
+                if (!fileSuccess) {
+                    qWarning() << "RestoreFiles: Failed to remove" << systemFilePath;
                 }
             }
             else {
-                fileIt->setUndo(true);
-                markedCount++;
-            }
-        }
+                // deleted / modified / typechanged → スナップショットからコピー
 
-        // undoフラグが立っているファイルのUndoStepsを一度に取得
-        std::vector<snapper::UndoStep> undoSteps = comparison.getUndoSteps();
-
-        // undoStepsが空の場合の処理
-        if (undoSteps.empty()) {
-            qWarning() << "No undo steps generated. Marked files:" << markedCount
-                       << "Not found:" << notFoundFiles.size();
-
-            // undoフラグをクリア
-            for (const QString &filePath : filePaths) {
-                auto fileIt = files.findAbsolutePath(filePath.toStdString());
-                if (fileIt != files.end()) {
-                    fileIt->setUndo(false);
+                // 親ディレクトリを確認・作成 (YaST: CheckAndCreatePath)
+                QString parentDir = systemFilePath.left(systemFilePath.lastIndexOf('/'));
+                if (!parentDir.isEmpty()) {
+                    QProcess mkdirProc;
+                    mkdirProc.start("/bin/mkdir", QStringList() << "-p" << "--" << parentDir);
+                    mkdirProc.waitForFinished(10000);
                 }
-            }
 
-            if (markedCount == 0) {
-                // ファイルが比較結果に見つからなかった (既に復元済み等)
-                QString errorMsg = QString("No files found in comparison. Files may already be restored or in sync with snapshot.");
-                qWarning() << errorMsg;
-                sendErrorReply(QDBusError::Failed, errorMsg);
-                return false;
-            }
+                QFileInfo snapshotFileInfo(snapshotFilePath);
+                if (snapshotFileInfo.isDir()) {
+                    // ディレクトリの場合 (YaST: mkdir + chown + chmod)
+                    if (!QFileInfo::exists(systemFilePath)) {
+                        QProcess mkdirProc;
+                        mkdirProc.start("/bin/mkdir", QStringList() << "-p" << "--" << systemFilePath);
+                        mkdirProc.waitForFinished(10000);
+                    }
 
-            // markedCount > 0 だが undoSteps が空: 差分がないため復元不要
-            // 成功として扱う
-            return true;
-        }
+                    // 所有者をコピー (YaST: /bin/chown -- uid:gid path)
+                    QProcess chownProc;
+                    chownProc.start("/bin/chown", QStringList()
+                        << "--" << QString("%1:%2").arg(snapshotFileInfo.ownerId()).arg(snapshotFileInfo.groupId())
+                        << systemFilePath);
+                    chownProc.waitForFinished(10000);
 
-        // 各UndoStepを実行し、進捗を通知
-        bool allSuccess = true;
-        int total = undoSteps.size();
-        int current = 0;
-        int successCount = 0;
+                    // パーミッションをコピー (YaST: /bin/chmod -- mode path)
+                    QProcess statProc;
+                    statProc.start("/usr/bin/stat", QStringList() << "-c" << "%a" << snapshotFilePath);
+                    statProc.waitForFinished(10000);
+                    QString permStr = QString::fromUtf8(statProc.readAllStandardOutput()).trimmed();
+                    if (!permStr.isEmpty()) {
+                        QProcess chmodProc;
+                        chmodProc.start("/bin/chmod", QStringList() << "--" << permStr << systemFilePath);
+                        chmodProc.waitForFinished(10000);
+                    }
 
-        for (const auto &step : undoSteps) {
-            current++;
-            QString fileName = QString::fromStdString(step.name);
-
-            // 進捗を通知 (D-Busシグナル)
-            emit restoreProgress(current, total, fileName);
-
-            // ファイルを復元
-            try {
-                bool success = comparison.doUndoStep(step);
-                if (!success) {
-                    qWarning() << "Failed to restore:" << fileName;
-                    allSuccess = false;
+                    fileSuccess = true;
+                }
+                else if (snapshotFileInfo.exists()) {
+                    // ファイルの場合 (YaST: /bin/cp -a -- src dst)
+                    QProcess cpProc;
+                    cpProc.start("/bin/cp", QStringList()
+                        << "-a" << "--" << snapshotFilePath << systemFilePath);
+                    cpProc.waitForFinished(30000);
+                    fileSuccess = (cpProc.exitCode() == 0);
+                    if (!fileSuccess) {
+                        qWarning() << "RestoreFiles: Failed to copy" << snapshotFilePath
+                                   << "to" << systemFilePath;
+                    }
                 }
                 else {
-                    successCount++;
+                    qWarning() << "RestoreFiles: Source not found in snapshot:" << snapshotFilePath;
+                    fileSuccess = false;
                 }
             }
-            catch (const snapper::Exception &e) {
-                qWarning() << "Exception during restore:" << fileName << "-" << e.what();
+
+            if (fileSuccess) {
+                successCount++;
+            }
+            else {
                 allSuccess = false;
             }
         }
 
-        // undoフラグをクリア
-        for (const QString &filePath : filePaths) {
-            auto fileIt = files.findAbsolutePath(filePath.toStdString());
-            if (fileIt != files.end()) {
-                fileIt->setUndo(false);
-            }
+        // スナップショットをアンマウント
+        try {
+            snapshot1->umountFilesystemSnapshot(true);
+        }
+        catch (...) {
+            qWarning() << "RestoreFiles: Failed to unmount snapshot";
         }
 
-        qWarning() << "RestoreFiles: Completed. Successful:" << successCount << "Failed:" << (total - successCount);
+        qWarning() << "RestoreFiles: Completed. Successful:" << successCount
+                   << "Failed:" << (total - successCount);
 
-        // notFoundFilesは警告のみ (ディレクトリや差分のないファイルの可能性) 
-        if (!notFoundFiles.isEmpty()) {
-            qWarning() << "Some files were not found in comparison (may be directories or already in sync):" << notFoundFiles.size();
-        }
-
-        // 実際の復元失敗がある場合のみエラーを返す
         if (!allSuccess) {
             QString errorMsg = QString("Failed to restore %1 out of %2 files").arg(total - successCount).arg(total);
             sendErrorReply(QDBusError::Failed, errorMsg);
         }
 
         return allSuccess;
-
     }
     catch (const snapper::Exception &e) {
-        qWarning() << "Failed to restore files:" << e.what();
+        qWarning() << "RestoreFiles failed:" << e.what();
         sendErrorReply(QDBusError::Failed, QString("Failed to restore files: %1").arg(e.what()));
         return false;
     }
     catch (const std::exception &e) {
-        qWarning() << "Unexpected error during restore:" << e.what();
+        qWarning() << "RestoreFiles unexpected error:" << e.what();
+        sendErrorReply(QDBusError::Failed, QString("Unexpected error: %1").arg(e.what()));
+        return false;
+    }
+}
+
+/**
+ * @brief ファイルをスナップショットから直接コピーして復元 (高速版)
+ *
+ * Comparisonオブジェクトを使用せず、スナップショットのマウントパスから
+ * 直接ファイルをコピーして復元します。btrfsではreflink (COW) により
+ * 高速なコピーが可能です。
+ *
+ * @param configName Snapper設定名
+ * @param snapshotNumber 復元元のスナップショット番号
+ * @param filePaths 復元するファイルパスのリスト
+ * @param changeTypes 各ファイルの変更種別 ("created", "deleted", "modified", "typechanged")
+ * @return 全ファイルの復元が成功した場合true、それ以外はfalse
+ */
+bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snapshotNumber,
+                                            const QStringList &filePaths, const QStringList &changeTypes)
+{
+    if (!checkAuthorization("com.presire.qsnapper.rollback-snapshot")) {
+        return false;
+    }
+
+    if (filePaths.isEmpty()) {
+        sendErrorReply(QDBusError::InvalidArgs, "No files specified for restore");
+        return false;
+    }
+
+    if (filePaths.size() != changeTypes.size()) {
+        sendErrorReply(QDBusError::InvalidArgs, "filePaths and changeTypes must have the same size");
+        return false;
+    }
+
+    qWarning() << "RestoreFilesDirect: Starting direct restore for" << filePaths.size()
+               << "files from snapshot" << snapshotNumber;
+
+    try {
+        snapper::Snapper *snapper = getSnapper(configName);
+        if (!snapper) {
+            sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
+            return false;
+        }
+
+        snapper::Snapshots::const_iterator snapshot1 = snapper->getSnapshots().find(snapshotNumber);
+        if (snapshot1 == snapper->getSnapshots().end()) {
+            sendErrorReply(QDBusError::Failed, "Snapshot not found");
+            return false;
+        }
+
+        // スナップショットをマウント
+        snapshot1->mountFilesystemSnapshot(true);
+
+        // スナップショットディレクトリのパスを取得
+        QString snapshotDir = QString::fromStdString(snapshot1->snapshotDir());
+
+        qWarning() << "RestoreFilesDirect: Snapshot mounted at" << snapshotDir;
+
+        bool allSuccess = true;
+        int total = filePaths.size();
+        int successCount = 0;
+
+        for (int i = 0; i < total; ++i) {
+            const QString &filePath = filePaths[i];
+            const QString &changeType = changeTypes[i];
+
+            // 進捗を通知
+            emit restoreProgress(i + 1, total, filePath);
+
+            // スナップショット内のファイルパス
+            QString snapshotFilePath = snapshotDir + filePath;
+            // システム上のファイルパス (ルートからの絶対パス)
+            QString systemFilePath = filePath;
+
+            bool fileSuccess = false;
+
+            if (changeType == "created") {
+                // スナップショット時点では存在しなかったファイル → 削除
+                QProcess proc;
+                proc.start("/bin/rm", QStringList() << "-rf" << "--" << systemFilePath);
+                proc.waitForFinished(30000);
+                fileSuccess = (proc.exitCode() == 0);
+                if (!fileSuccess) {
+                    qWarning() << "RestoreFilesDirect: Failed to remove" << systemFilePath
+                               << "exit code:" << proc.exitCode();
+                }
+            }
+            else {
+                // deleted / modified / typechanged → スナップショットからコピー
+
+                // 親ディレクトリを作成
+                QString parentDir = systemFilePath.left(systemFilePath.lastIndexOf('/'));
+                if (!parentDir.isEmpty()) {
+                    QProcess mkdirProc;
+                    mkdirProc.start("/bin/mkdir", QStringList() << "-p" << "--" << parentDir);
+                    mkdirProc.waitForFinished(10000);
+                }
+
+                QFileInfo snapshotFileInfo(snapshotFilePath);
+                if (snapshotFileInfo.isDir()) {
+                    // ディレクトリの場合: 存在しなければ作成し、権限と所有者をコピー
+                    if (!QFileInfo::exists(systemFilePath)) {
+                        QProcess mkdirProc;
+                        mkdirProc.start("/bin/mkdir", QStringList() << "-p" << "--" << systemFilePath);
+                        mkdirProc.waitForFinished(10000);
+                    }
+
+                    // 所有者をコピー
+                    QProcess chownProc;
+                    chownProc.start("/bin/chown", QStringList()
+                        << "--" << QString("%1:%2").arg(snapshotFileInfo.ownerId()).arg(snapshotFileInfo.groupId())
+                        << systemFilePath);
+                    chownProc.waitForFinished(10000);
+
+                    // パーミッションをコピー
+                    QProcess chmodProc;
+                    QString mode = QString("%1").arg(snapshotFileInfo.permissions() & 0x0FFF, 4, 8, QChar('0'));
+                    // QFileInfo::permissions()はQFile::Permissionsなので変換
+                    QProcess statProc;
+                    statProc.start("/usr/bin/stat", QStringList() << "-c" << "%a" << snapshotFilePath);
+                    statProc.waitForFinished(10000);
+                    QString permStr = QString::fromUtf8(statProc.readAllStandardOutput()).trimmed();
+                    if (!permStr.isEmpty()) {
+                        chmodProc.start("/bin/chmod", QStringList() << "--" << permStr << systemFilePath);
+                        chmodProc.waitForFinished(10000);
+                    }
+
+                    fileSuccess = true;
+                }
+                else if (snapshotFileInfo.exists()) {
+                    // ファイル/シンボリックリンクの場合: cp -a --reflink=auto でコピー
+                    // 既存ファイルを先に削除 (typechanged対応)
+                    if (QFileInfo::exists(systemFilePath)) {
+                        QProcess rmProc;
+                        rmProc.start("/bin/rm", QStringList() << "-rf" << "--" << systemFilePath);
+                        rmProc.waitForFinished(10000);
+                    }
+
+                    QProcess cpProc;
+                    cpProc.start("/bin/cp", QStringList()
+                        << "-a" << "--reflink=auto" << "--" << snapshotFilePath << systemFilePath);
+                    cpProc.waitForFinished(30000);
+                    fileSuccess = (cpProc.exitCode() == 0);
+                    if (!fileSuccess) {
+                        qWarning() << "RestoreFilesDirect: Failed to copy" << snapshotFilePath
+                                   << "to" << systemFilePath << "exit code:" << cpProc.exitCode();
+                    }
+                }
+                else {
+                    qWarning() << "RestoreFilesDirect: Source file not found in snapshot:" << snapshotFilePath;
+                    fileSuccess = false;
+                }
+            }
+
+            if (fileSuccess) {
+                successCount++;
+            }
+            else {
+                allSuccess = false;
+            }
+        }
+
+        // スナップショットをアンマウント
+        try {
+            snapshot1->umountFilesystemSnapshot(true);
+        }
+        catch (...) {
+            qWarning() << "RestoreFilesDirect: Failed to unmount snapshot";
+        }
+
+        qWarning() << "RestoreFilesDirect: Completed. Successful:" << successCount
+                   << "Failed:" << (total - successCount);
+
+        if (!allSuccess) {
+            QString errorMsg = QString("Failed to restore %1 out of %2 files").arg(total - successCount).arg(total);
+            sendErrorReply(QDBusError::Failed, errorMsg);
+        }
+
+        return allSuccess;
+    }
+    catch (const snapper::Exception &e) {
+        qWarning() << "RestoreFilesDirect failed:" << e.what();
+        sendErrorReply(QDBusError::Failed, QString("Failed to restore files: %1").arg(e.what()));
+        return false;
+    }
+    catch (const std::exception &e) {
+        qWarning() << "RestoreFilesDirect unexpected error:" << e.what();
         sendErrorReply(QDBusError::Failed, QString("Unexpected error: %1").arg(e.what()));
         return false;
     }

@@ -60,6 +60,8 @@ class FileChangeModel : public QAbstractItemModel
     Q_PROPERTY(int snapshotNumber READ snapshotNumber WRITE setSnapshotNumber NOTIFY snapshotNumberChanged)
     Q_PROPERTY(bool hasChanges READ hasChanges NOTIFY hasChangesChanged)
     Q_PROPERTY(bool loading READ isLoading NOTIFY loadingChanged)
+    Q_PROPERTY(int restoreBatchSize READ restoreBatchSize WRITE setRestoreBatchSize NOTIFY restoreBatchSizeChanged)
+    Q_PROPERTY(bool useDirectRestore READ useDirectRestore WRITE setUseDirectRestore NOTIFY useDirectRestoreChanged)
 
 private:
     QString m_configName;                   // Snapper設定名
@@ -71,11 +73,16 @@ private:
 
     // バッチ復元用の変数
     QList<QStringList> m_restoreBatches;    // 復元ファイルのバッチリスト
+    QList<QStringList> m_restoreBatchChangeTypes; // バッチごとの変更タイプリスト
     int m_currentBatchIndex;                // 現在処理中のバッチインデックス
     int m_totalFilesCount;                  // 復元対象の総ファイル数
     int m_processedFilesCount;              // 処理済みファイル数
     bool m_restoreHasError;                 // 復元エラーフラグ
     bool m_cancelRequested;                 // キャンセル要求フラグ
+
+    // 復元設定
+    int m_restoreBatchSize;                 // バッチサイズ (1-1000)
+    bool m_useDirectRestore;                // Direct Copy方式を使用するか
 
 public:
 
@@ -84,14 +91,14 @@ private:
     void clearModel();
     FileChangeItem *getItem(const QModelIndex &index) const;
     FileChangeItem::ChangeType parseChangeType(const QChar &statusChar);
-    QString executeCommand(const QString &command, const QStringList &arguments);
-    QDBusInterface* getDBusInterface();
     QModelIndex findItemIndex(FileChangeItem *parent, const QString &path) const;
     void collectCheckedItems(FileChangeItem *parent, QStringList &paths) const;
+    void collectCheckedItemsWithTypes(FileChangeItem *parent, QStringList &paths, QStringList &changeTypes) const;
+    static QString changeTypeToString(FileChangeItem::ChangeType type);
     void collectAllFilesRecursive(FileChangeItem *parent, QStringList &paths) const;
     void setItemCheckedRecursive(FileChangeItem *item, const QModelIndex &index, bool checked);
     void processNextBatch();
-    void dumpTree(FileChangeItem *item, int depth, int maxDepth);
+
 
 public:
     enum Roles {
@@ -124,6 +131,12 @@ public:
     bool hasChanges() const { return m_hasChanges; }
     bool isLoading() const { return m_loading; }
 
+    int restoreBatchSize() const { return m_restoreBatchSize; }
+    void setRestoreBatchSize(int size);
+
+    bool useDirectRestore() const { return m_useDirectRestore; }
+    void setUseDirectRestore(bool use);
+
     // 公開メソッド
     Q_INVOKABLE void loadChanges();
     Q_INVOKABLE void getFileDiffAndDetails(const QString &filePath);
@@ -142,6 +155,8 @@ signals:
     void fileDiffAndDetailsReady(const QString &filePath, const QVariantMap &details, const QString &diff);
     void restoreProgress(int current, int total, const QString &filePath);
     void restoreCompleted(bool success);
+    void restoreBatchSizeChanged();
+    void useDirectRestoreChanged();
 
 private slots:
     void onRestoreProgress(int current, int total, const QString &filePath);

@@ -73,8 +73,6 @@ private:
 
     QList<FsSnapshot*> parseSnapshotList(const QString &csvOutput);
     QString executeCommand(const QString &program, const QStringList &arguments, bool &success);
-    QDBusInterface* getDBusInterface();
-
     static SnapperService *s_instance;       // シングルトンインスタンス
 
     bool m_configured;                       // Snapperが設定済みかどうか

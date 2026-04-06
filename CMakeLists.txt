@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(qsnapper VERSION 1.1.4 LANGUAGES CXX)
+project(qsnapper VERSION 1.2.0 LANGUAGES CXX)
 
 # Linux専用プロジェクト - 他のプラットフォームでは明示的にエラーを出す
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -80,6 +80,10 @@ qt6_add_translations(qsnapper
     RESOURCE_PREFIX /i18n
 )
 
+target_compile_definitions(qsnapper PRIVATE
+    QSNAPPER_VERSION="${PROJECT_VERSION}"
+)
+
 target_link_libraries(qsnapper PRIVATE
     Qt6::Core
     Qt6::Gui
@@ -143,6 +147,7 @@ set(QSNAPPER_LOG_DIR "/var/log/qsnapper" CACHE PATH "Log directory for qsnapper-
 message(STATUS "Log directory: ${QSNAPPER_LOG_DIR}")
 
 target_compile_definitions(qsnapper-dbus-service PRIVATE
+    QSNAPPER_VERSION="${PROJECT_VERSION}"
     LIBSNAPPER_VERSION_MAJOR=${SNAPPER_VERSION_MAJOR}
     LIBSNAPPER_VERSION_MINOR=${SNAPPER_VERSION_MINOR}
     QSNAPPER_LOG_DIR="${QSNAPPER_LOG_DIR}"

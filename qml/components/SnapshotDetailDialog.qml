@@ -33,7 +33,7 @@ Dialog {
         // Pre/Postペアの場合はPre/Post両方の番号を設定
         preSnapshotNumber: (postSnapshot && postSnapshot.number) ? snapshot.number : 0
         postSnapshotNumber: (postSnapshot && postSnapshot.number) ? postSnapshot.number : 0
-        // デフォルトはPost番号（Pre/Postペアでない場合はsnapshot番号）
+        // デフォルトはPost番号 (Pre/Postペアでない場合はsnapshot番号) 
         snapshotNumber: {
             if (postSnapshot && postSnapshot.number)
                 return postSnapshot.number

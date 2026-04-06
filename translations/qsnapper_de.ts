@@ -446,6 +446,126 @@
         <source>No more differences with snapshot.</source>
         <translation>Keine Unterschiede mehr zum Snapshot.</translation>
     </message>
+    <message>
+        <source>Restore Options</source>
+        <translation>Wiederherstellungsoptionen</translation>
+    </message>
+    <message>
+        <source>Method:</source>
+        <translation>Methode:</translation>
+    </message>
+    <message>
+        <source>Direct copy (fast)</source>
+        <translation>Direktkopie (schnell)</translation>
+    </message>
+    <message>
+        <source>YaST compatible</source>
+        <translation>YaST-kompatibel</translation>
+    </message>
+    <message>
+        <source>Batch size:</source>
+        <translation>Stapelgröße:</translation>
+    </message>
+    <message>
+        <source>files per batch</source>
+        <translation>Dateien pro Stapel</translation>
+    </message>
+    <message>
+        <source>Loading file changes. Please wait...</source>
+        <translation>Dateiänderungen werden geladen. Bitte warten...</translation>
+    </message>
+    <message>
+        <source>Show differences between snapshot #%1 (Pre) and the current system</source>
+        <translation>Unterschiede zwischen Schnappschuss #%1 (Vorher) und dem aktuellen System anzeigen</translation>
+    </message>
+    <message>
+        <source>Show differences between snapshot #%1 (Post) and the current system</source>
+        <translation>Unterschiede zwischen Schnappschuss #%1 (Nachher) und dem aktuellen System anzeigen</translation>
+    </message>
+    <message>
+        <source>New file was created.</source>
+        <translation>Neue Datei wurde erstellt.</translation>
+    </message>
+    <message>
+        <source>File content was modified.</source>
+        <translation>Dateiinhalt wurde geändert.</translation>
+    </message>
+    <message>
+        <source>File was removed.</source>
+        <translation>Datei wurde entfernt.</translation>
+    </message>
+    <message>
+        <source>File type was changed.</source>
+        <translation>Dateityp wurde geändert.</translation>
+    </message>
+    <message>
+        <source>Select a file to view details</source>
+        <translation>Wählen Sie eine Datei aus, um Details anzuzeigen</translation>
+    </message>
+    <message>
+        <source>Loading file details...</source>
+        <translation>Dateidetails werden geladen...</translation>
+    </message>
+    <message>
+        <source>File Status</source>
+        <translation>Dateistatus</translation>
+    </message>
+    <message>
+        <source>File mode was changed from &apos;%1&apos; to &apos;%2&apos;.</source>
+        <translation>Dateimodus wurde von &apos;%1&apos; auf &apos;%2&apos; geändert.</translation>
+    </message>
+    <message>
+        <source>File user ownership was changed from &apos;%1&apos; to &apos;%2&apos;.</source>
+        <translation>Datei-Benutzereigentümer wurde von &apos;%1&apos; auf &apos;%2&apos; geändert.</translation>
+    </message>
+    <message>
+        <source>File group ownership was changed from &apos;%1&apos; to &apos;%2&apos;.</source>
+        <translation>Datei-Gruppeneigentümer wurde von &apos;%1&apos; auf &apos;%2&apos; geändert.</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Entfernen</translation>
+    </message>
+    <message>
+        <source>Restore</source>
+        <translation>Wiederherstellen</translation>
+    </message>
+    <message>
+        <source>Restore from Pre #%1</source>
+        <translation>Wiederherstellen von Vorher #%1</translation>
+    </message>
+    <message>
+        <source>Restore from Post #%1</source>
+        <translation>Wiederherstellen von Nachher #%1</translation>
+    </message>
+    <message>
+        <source>Remove this file from the current system?</source>
+        <translation>Diese Datei vom aktuellen System entfernen?</translation>
+    </message>
+    <message>
+        <source>Restore this file from snapshot #%1?</source>
+        <translation>Diese Datei aus Schnappschuss #%1 wiederherstellen?</translation>
+    </message>
+    <message>
+        <source>Warning: This file will be deleted from the current system.</source>
+        <translation>Warnung: Diese Datei wird vom aktuellen System gelöscht.</translation>
+    </message>
+    <message>
+        <source>Warning: The current file will be overwritten.</source>
+        <translation>Warnung: Die aktuelle Datei wird überschrieben.</translation>
+    </message>
+    <message>
+        <source>Restore Failed</source>
+        <translation>Wiederherstellung fehlgeschlagen</translation>
+    </message>
+    <message>
+        <source>Failed to restore some or all files.</source>
+        <translation>Einige oder alle Dateien konnten nicht wiederhergestellt werden.</translation>
+    </message>
+    <message>
+        <source>The files may already be in sync with the snapshot, or an error occurred during restoration. Check the system log for details.</source>
+        <translation>Die Dateien sind möglicherweise bereits mit dem Schnappschuss synchronisiert, oder es ist ein Fehler bei der Wiederherstellung aufgetreten. Überprüfen Sie das Systemprotokoll für Details.</translation>
+    </message>
 </context>
 <context>
     <name>AboutQtDialog</name>
