@@ -51,6 +51,7 @@ SnapshotOperations::SnapshotOperations(QObject *parent)
     : QObject(parent)
     , m_snapper(nullptr)
     , m_currentConfig("")
+    , m_authenticated(false)
 {
     m_idleTimer.setSingleShot(true);
     m_idleTimer.setInterval(IdleTimeoutMs);
@@ -91,6 +92,27 @@ void SnapshotOperations::Quit()
 {
     qInfo() << "Quit requested via D-Bus, shutting down...";
     QCoreApplication::quit();
+}
+
+/**
+ * @brief 事前認証を実行
+ *
+ * バッチ復元などの連続操作の前に1回だけ呼び出し、Polkit認証を実行します。
+ * 認証成功時にm_authenticatedフラグをセットし、以降のRestoreFiles/RestoreFilesDirect
+ * 呼び出しでは再認証をスキップします。
+ * フラグはD-Busサービスプロセスの生存期間中有効です（アイドルタイムアウト5分で自動クリア）。
+ *
+ * @param actionId チェックするPolkitアクションID
+ * @return 認証成功時true、失敗時false
+ */
+bool SnapshotOperations::Authenticate(const QString &actionId)
+{
+    m_authenticated = false;
+    bool result = checkAuthorization(actionId);
+    if (result) {
+        m_authenticated = true;
+    }
+    return result;
 }
 
 /**
@@ -643,7 +665,9 @@ QString SnapshotOperations::GetFileDiffAndDetails(const QString &configName, int
 bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNumber,
                                       const QStringList &filePaths, const QStringList &changeTypes)
 {
-    if (!checkAuthorization("com.presire.qsnapper.rollback-snapshot")) {
+    resetIdleTimer();
+    // 事前認証済み(Authenticate呼び出し済み)の場合はスキップ、未認証なら従来通り認証
+    if (!m_authenticated && !checkAuthorization("com.presire.qsnapper.rollback-snapshot")) {
         return false;
     }
 
@@ -684,6 +708,7 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
         bool allSuccess = true;
         int total = filePaths.size();
         int successCount = 0;
+        int skippedCount = 0;
 
         for (int i = 0; i < total; ++i) {
             const QString &filePath = filePaths[i];
@@ -691,6 +716,13 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
 
             // 進捗を通知
             emit restoreProgress(i + 1, total, filePath);
+
+            // 危険なパスをスキップ
+            if (filePath.startsWith("/.snapshots/")) {
+                qWarning() << "RestoreFiles: Skipping dangerous path:" << filePath;
+                skippedCount++;
+                continue;
+            }
 
             // スナップショット内のファイルパス
             QString snapshotFilePath = snapshotDir + filePath;
@@ -721,7 +753,28 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
                 }
 
                 QFileInfo snapshotFileInfo(snapshotFilePath);
-                if (snapshotFileInfo.isDir()) {
+                if (snapshotFileInfo.isSymLink()) {
+                    // シンボリックリンクの場合: cp -d でリンク自体を復元
+                    // 注意: isDir() はシンボリックリンクを追跡するため、
+                    // リンク→ディレクトリの場合 isDir()=true となり
+                    // mkdir で処理されてしまう。isSymLink() を先に判定する。
+                    if (QFileInfo::exists(systemFilePath) || QFileInfo(systemFilePath).isSymLink()) {
+                        QProcess rmProc;
+                        rmProc.start("/bin/rm", QStringList() << "-rf" << "--" << systemFilePath);
+                        rmProc.waitForFinished(10000);
+                    }
+                    QProcess cpProc;
+                    cpProc.start("/bin/cp", QStringList()
+                        << "-d" << "--preserve=all" << "--no-preserve=xattr"
+                        << "--" << snapshotFilePath << systemFilePath);
+                    cpProc.waitForFinished(30000);
+                    fileSuccess = (cpProc.exitCode() == 0);
+                    if (!fileSuccess) {
+                        qWarning() << "RestoreFiles: Failed to copy symlink" << snapshotFilePath
+                                   << "to" << systemFilePath;
+                    }
+                }
+                else if (snapshotFileInfo.isDir()) {
                     // ディレクトリの場合 (YaST: mkdir + chown + chmod)
                     if (!QFileInfo::exists(systemFilePath)) {
                         QProcess mkdirProc;
@@ -750,10 +803,15 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
                     fileSuccess = true;
                 }
                 else if (snapshotFileInfo.exists()) {
-                    // ファイルの場合 (YaST: /bin/cp -a -- src dst)
+                    // 通常ファイルの場合
+                    // 注意: cp -a (= cp -dR --preserve=all) はxattrもコピーするため、
+                    // btrfsスナップショット(read-only)のroプロパティが伝播し、
+                    // ルートサブボリュームがread-onlyになる問題がある。
+                    // -d (シンボリックリンク保持) は維持しつつ、xattrのみ除外する。
                     QProcess cpProc;
                     cpProc.start("/bin/cp", QStringList()
-                        << "-a" << "--" << snapshotFilePath << systemFilePath);
+                        << "-d" << "--preserve=all" << "--no-preserve=xattr"
+                        << "--" << snapshotFilePath << systemFilePath);
                     cpProc.waitForFinished(30000);
                     fileSuccess = (cpProc.exitCode() == 0);
                     if (!fileSuccess) {
@@ -775,6 +833,20 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
             }
         }
 
+        // 安全ネット: 復元操作によりルートサブボリュームがread-onlyになっていないか確認・復旧
+        {
+            QProcess btrfsCheck;
+            btrfsCheck.start("/usr/sbin/btrfs", QStringList() << "property" << "get" << "/" << "ro");
+            btrfsCheck.waitForFinished(5000);
+            QString roOutput = QString::fromUtf8(btrfsCheck.readAllStandardOutput()).trimmed();
+            if (roOutput.contains("ro=true")) {
+                qWarning() << "RestoreFiles: Root subvolume became read-only after restore, restoring rw";
+                QProcess btrfsFix;
+                btrfsFix.start("/usr/sbin/btrfs", QStringList() << "property" << "set" << "/" << "ro" << "false");
+                btrfsFix.waitForFinished(5000);
+            }
+        }
+
         // スナップショットをアンマウント
         try {
             snapshot1->umountFilesystemSnapshot(true);
@@ -783,8 +855,11 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
             qWarning() << "RestoreFiles: Failed to unmount snapshot";
         }
 
+        if (skippedCount > 0) {
+            qWarning() << "RestoreFiles: Skipped" << skippedCount << "dangerous paths";
+        }
         qWarning() << "RestoreFiles: Completed. Successful:" << successCount
-                   << "Failed:" << (total - successCount);
+                   << "Failed:" << (total - successCount - skippedCount);
 
         if (!allSuccess) {
             QString errorMsg = QString("Failed to restore %1 out of %2 files").arg(total - successCount).arg(total);
@@ -821,7 +896,9 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
 bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snapshotNumber,
                                             const QStringList &filePaths, const QStringList &changeTypes)
 {
-    if (!checkAuthorization("com.presire.qsnapper.rollback-snapshot")) {
+    resetIdleTimer();
+    // 事前認証済み(Authenticate呼び出し済み)の場合はスキップ、未認証なら従来通り認証
+    if (!m_authenticated && !checkAuthorization("com.presire.qsnapper.rollback-snapshot")) {
         return false;
     }
 
@@ -862,6 +939,7 @@ bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snaps
         bool allSuccess = true;
         int total = filePaths.size();
         int successCount = 0;
+        int skippedCount = 0;
 
         for (int i = 0; i < total; ++i) {
             const QString &filePath = filePaths[i];
@@ -869,6 +947,13 @@ bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snaps
 
             // 進捗を通知
             emit restoreProgress(i + 1, total, filePath);
+
+            // 危険なパスをスキップ
+            if (filePath.startsWith("/.snapshots/")) {
+                qWarning() << "RestoreFilesDirect: Skipping dangerous path:" << filePath;
+                skippedCount++;
+                continue;
+            }
 
             // スナップショット内のファイルパス
             QString snapshotFilePath = snapshotDir + filePath;
@@ -900,7 +985,28 @@ bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snaps
                 }
 
                 QFileInfo snapshotFileInfo(snapshotFilePath);
-                if (snapshotFileInfo.isDir()) {
+                if (snapshotFileInfo.isSymLink()) {
+                    // シンボリックリンクの場合: cp -d でリンク自体を復元
+                    // 注意: isDir() はシンボリックリンクを追跡するため、
+                    // リンク→ディレクトリの場合 isDir()=true となり
+                    // mkdir で処理されてしまう。isSymLink() を先に判定する。
+                    if (QFileInfo::exists(systemFilePath) || QFileInfo(systemFilePath).isSymLink()) {
+                        QProcess rmProc;
+                        rmProc.start("/bin/rm", QStringList() << "-rf" << "--" << systemFilePath);
+                        rmProc.waitForFinished(10000);
+                    }
+                    QProcess cpProc;
+                    cpProc.start("/bin/cp", QStringList()
+                        << "-d" << "--preserve=all" << "--no-preserve=xattr" << "--reflink=auto"
+                        << "--" << snapshotFilePath << systemFilePath);
+                    cpProc.waitForFinished(30000);
+                    fileSuccess = (cpProc.exitCode() == 0);
+                    if (!fileSuccess) {
+                        qWarning() << "RestoreFilesDirect: Failed to copy symlink" << snapshotFilePath
+                                   << "to" << systemFilePath << "exit code:" << cpProc.exitCode();
+                    }
+                }
+                else if (snapshotFileInfo.isDir()) {
                     // ディレクトリの場合: 存在しなければ作成し、権限と所有者をコピー
                     if (!QFileInfo::exists(systemFilePath)) {
                         QProcess mkdirProc;
@@ -916,14 +1022,12 @@ bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snaps
                     chownProc.waitForFinished(10000);
 
                     // パーミッションをコピー
-                    QProcess chmodProc;
-                    QString mode = QString("%1").arg(static_cast<int>(snapshotFileInfo.permissions() & 0x0FFF), 4, 8, QChar('0'));
-                    // QFileInfo::permissions()はQFile::Permissionsなので変換
                     QProcess statProc;
                     statProc.start("/usr/bin/stat", QStringList() << "-c" << "%a" << snapshotFilePath);
                     statProc.waitForFinished(10000);
                     QString permStr = QString::fromUtf8(statProc.readAllStandardOutput()).trimmed();
                     if (!permStr.isEmpty()) {
+                        QProcess chmodProc;
                         chmodProc.start("/bin/chmod", QStringList() << "--" << permStr << systemFilePath);
                         chmodProc.waitForFinished(10000);
                     }
@@ -931,17 +1035,29 @@ bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snaps
                     fileSuccess = true;
                 }
                 else if (snapshotFileInfo.exists()) {
-                    // ファイル/シンボリックリンクの場合: cp -a --reflink=auto でコピー
-                    // 既存ファイルを先に削除 (typechanged対応)
-                    if (QFileInfo::exists(systemFilePath)) {
+                    // typechanged の場合のみ既存ファイルを先に削除
+                    // (ファイル→シンボリックリンク等の変換にはrm後のcpが必要)
+                    if (changeType == "typechanged" && QFileInfo::exists(systemFilePath)) {
                         QProcess rmProc;
                         rmProc.start("/bin/rm", QStringList() << "-rf" << "--" << systemFilePath);
                         rmProc.waitForFinished(10000);
+                        if (rmProc.exitCode() != 0) {
+                            qWarning() << "RestoreFilesDirect: Failed to remove before copy"
+                                       << systemFilePath << "exit code:" << rmProc.exitCode();
+                            allSuccess = false;
+                            continue;
+                        }
                     }
 
+                    // ファイル/シンボリックリンクの場合: reflink でコピー
+                    // 注意: cp -a (= cp -dR --preserve=all) はxattrもコピーするため、
+                    // btrfsスナップショット(read-only)のroプロパティが伝播し、
+                    // ルートサブボリュームがread-onlyになる問題がある。
+                    // -d (シンボリックリンク保持) は維持しつつ、xattrのみ除外する。
                     QProcess cpProc;
                     cpProc.start("/bin/cp", QStringList()
-                        << "-a" << "--reflink=auto" << "--" << snapshotFilePath << systemFilePath);
+                        << "-d" << "--preserve=all" << "--no-preserve=xattr" << "--reflink=auto"
+                        << "--" << snapshotFilePath << systemFilePath);
                     cpProc.waitForFinished(30000);
                     fileSuccess = (cpProc.exitCode() == 0);
                     if (!fileSuccess) {
@@ -963,6 +1079,20 @@ bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snaps
             }
         }
 
+        // 安全ネット: 復元操作によりルートサブボリュームがread-onlyになっていないか確認・復旧
+        {
+            QProcess btrfsCheck;
+            btrfsCheck.start("/usr/sbin/btrfs", QStringList() << "property" << "get" << "/" << "ro");
+            btrfsCheck.waitForFinished(5000);
+            QString roOutput = QString::fromUtf8(btrfsCheck.readAllStandardOutput()).trimmed();
+            if (roOutput.contains("ro=true")) {
+                qWarning() << "RestoreFilesDirect: Root subvolume became read-only after restore, restoring rw";
+                QProcess btrfsFix;
+                btrfsFix.start("/usr/sbin/btrfs", QStringList() << "property" << "set" << "/" << "ro" << "false");
+                btrfsFix.waitForFinished(5000);
+            }
+        }
+
         // スナップショットをアンマウント
         try {
             snapshot1->umountFilesystemSnapshot(true);
@@ -971,8 +1101,11 @@ bool SnapshotOperations::RestoreFilesDirect(const QString &configName, int snaps
             qWarning() << "RestoreFilesDirect: Failed to unmount snapshot";
         }
 
+        if (skippedCount > 0) {
+            qWarning() << "RestoreFilesDirect: Skipped" << skippedCount << "dangerous paths";
+        }
         qWarning() << "RestoreFilesDirect: Completed. Successful:" << successCount
-                   << "Failed:" << (total - successCount);
+                   << "Failed:" << (total - successCount - skippedCount);
 
         if (!allSuccess) {
             QString errorMsg = QString("Failed to restore %1 out of %2 files").arg(total - successCount).arg(total);

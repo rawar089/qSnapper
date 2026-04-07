@@ -395,6 +395,16 @@ void FileChangeModel::restoreSingleFile(const QString &filePath)
     m_totalFilesCount = 1;
     m_processedFilesCount = 0;
 
+    // 事前認証: 復元操作前に1回だけPolkit認証を実行
+    QDBusReply<bool> authReply = m_dbusInterface->call("Authenticate",
+        QStringLiteral("com.presire.qsnapper.rollback-snapshot"));
+    if (!authReply.isValid() || !authReply.value()) {
+        qWarning() << "Authentication failed:" << authReply.error().message();
+        emit errorOccurred(tr("Authentication failed."));
+        emit restoreCompleted(false);
+        return;
+    }
+
     QStringList filePaths;
     filePaths << filePath;
 
@@ -1028,6 +1038,16 @@ bool FileChangeModel::restoreCheckedItems()
 
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
         emit errorOccurred("D-Bus connection failed");
+        emit restoreCompleted(false);
+        return false;
+    }
+
+    // 事前認証: バッチ処理開始前に1回だけPolkit認証を実行
+    QDBusReply<bool> authReply = m_dbusInterface->call("Authenticate",
+        QStringLiteral("com.presire.qsnapper.rollback-snapshot"));
+    if (!authReply.isValid() || !authReply.value()) {
+        qWarning() << "Authentication failed:" << authReply.error().message();
+        emit errorOccurred(tr("Authentication failed."));
         emit restoreCompleted(false);
         return false;
     }

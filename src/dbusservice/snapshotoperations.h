@@ -22,6 +22,7 @@ private:
     std::unique_ptr<snapper::Snapper> m_snapper;    // Snapperインスタンス
     QString m_currentConfig;                        // 現在の設定名
     QTimer m_idleTimer;                             // アイドルタイムアウト用タイマー
+    bool m_authenticated;                           // 事前認証済みフラグ
 
     void resetIdleTimer();
 
@@ -30,6 +31,7 @@ public:
     ~SnapshotOperations();
 
 public slots:
+    bool Authenticate(const QString &actionId);
     QString ListSnapshots();
     QString CreateSnapshot(const QString &type, const QString &description,
                           int preNumber, const QString &cleanup, bool important);
