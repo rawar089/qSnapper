@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(qsnapper VERSION 1.2.1 LANGUAGES CXX)
+project(qsnapper VERSION 1.2.2 LANGUAGES CXX)
 
 # Linux専用プロジェクト - 他のプラットフォームでは明示的にエラーを出す
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -71,7 +71,9 @@ qt6_add_resources(qsnapper "icons"
         icons/directory.svg
         icons/file.svg
         icons/Qt.png
-        icons/qSnapper.png
+        icons/qSnapper@64.png
+        icons/qSnapper@128.png
+        icons/qSnapper@256.png
 )
 
 # 翻訳ファイルの設定
@@ -178,9 +180,22 @@ install(FILES polkit/com.presire.qsnapper.policy
     DESTINATION ${CMAKE_INSTALL_DATADIR}/polkit-1/actions
 )
 
-# アプリケーションアイコン
-install(FILES icons/qSnapper.png
+# アプリケーションアイコン (hicolor theme, 複数解像度)
+install(FILES icons/qSnapper@64.png
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/64x64/apps
+    RENAME qSnapper.png
+)
+install(FILES icons/qSnapper@128.png
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/128x128/apps
+    RENAME qSnapper.png
+)
+install(FILES icons/qSnapper@256.png
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
+    RENAME qSnapper.png
+)
+install(FILES icons/qSnapper@512.png
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps
+    RENAME qSnapper.png
 )
 
 # デスクトップエントリファイル

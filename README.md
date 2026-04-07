@@ -6,6 +6,11 @@ A modern Qt6/QML GUI application for managing Btrfs/Snapper filesystem snapshots
 ![Qt Version](https://img.shields.io/badge/Qt-6.2+-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)
 
+<p align="center">
+  <img src="icons/qSnapper@256.png" alt="qSnapper" width="256" valign="middle">
+  <img src="icons/Qt.png" alt="Qt" width="139" valign="middle">
+</p>
+
 ## Overview
 
 qSnapper is a graphical user interface for the Snapper snapshot management tool. It provides an intuitive way to create, browse, and manage filesystem snapshots on Btrfs and other supported filesystems.

@@ -43,7 +43,7 @@ Dialog {
                 // qSnapperロゴ画像
                 Image {
                     id: qSnapperLogo
-                    source: "qrc:/QSnapper/icons/qSnapper.png"
+                    source: "qrc:/QSnapper/icons/qSnapper@256.png"
                     fillMode: Image.PreserveAspectFit
                     Layout.alignment: Qt.AlignHCenter | Qt.AlignTop
                     Layout.preferredWidth: 200

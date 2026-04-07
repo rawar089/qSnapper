@@ -94,7 +94,7 @@ vgcore.*
 *.tar.gz
 *.tar.bz2
 *.tar.xz
-packaging/
+**/packaging/
 
 # Temporary files
 *.tmp
@@ -104,4 +104,7 @@ packaging/
 .*.kate-swp
 
 # etc...
-selinux/qsnapper-architecture.drawio
+**/Notes/
+**/yast-snapper/
+**/libyui/
+**/selinux/qsnapper-architecture.drawio

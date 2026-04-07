@@ -25,7 +25,11 @@ int main(int argc, char *argv[])
     app.setOrganizationDomain("https://github.com/presire");
     app.setApplicationName("qSnapper");
     app.setApplicationVersion(QSNAPPER_VERSION);
-    app.setWindowIcon(QIcon(":QSnapper/icons/qSnapper.png"));
+    QIcon appIcon;
+    appIcon.addFile(":/QSnapper/icons/qSnapper@64.png",  QSize(64, 64));
+    appIcon.addFile(":/QSnapper/icons/qSnapper@128.png", QSize(128, 128));
+    appIcon.addFile(":/QSnapper/icons/qSnapper@256.png", QSize(256, 256));
+    app.setWindowIcon(appIcon);
 
     // 翻訳システムの設定
     QTranslator translator;
