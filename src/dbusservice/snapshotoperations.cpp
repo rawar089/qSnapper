@@ -445,20 +445,102 @@ bool SnapshotOperations::RollbackSnapshot(int number)
             return false;
         }
 
-        snapper::Snapshots::iterator snapshot = snapper->getSnapshots().find(number);
-        if (snapshot == snapper->getSnapshots().end()) {
+        snapper::Snapshots &snapshots = snapper->getSnapshots();
+        snapper::Snapshots::iterator target = snapshots.find(number);
+        if (target == snapshots.end()) {
             sendErrorReply(QDBusError::Failed, "Snapshot not found");
             return false;
         }
 
-        // スナップショットをデフォルトに設定 (次回起動時に適用される)
+        // 'snapper rollback N' と同等の挙動を再現する。
+        //
+        // CLI (client/snapper/cmd-rollback.cc) は ambit を以下で判定:
+        //   - previous_default が read-only  → TRANSACTIONAL
+        //       (新規スナップショット作成なしで対象を直接 default 化)
+        //   - previous_default が writable  → CLASSIC
+        //       (1) 現在状態の read-only バックアップ snapshot を作成
+        //       (2) 対象 N の writable copy snapshot を作成
+        //       (3) previous_default に cleanup が空なら "number" を付与
+        //       (4) (2) で作成した writable copy を default に設定
+        snapper::Snapshots::iterator previousDefault = snapshots.getDefault();
+        const bool transactional =
+            (previousDefault != snapshots.end() && previousDefault->isReadOnly());
+
 #if LIBSNAPPER_VERSION_AT_LEAST(7, 4)
         snapper::Plugins::Report report;
-        snapshot->setDefault(report);
-        logPluginReport(report);
-#else
-        snapshot->setDefault();
 #endif
+
+        if (transactional) {
+            // TRANSACTIONAL: 対象スナップショットをそのまま default に
+#if LIBSNAPPER_VERSION_AT_LEAST(7, 4)
+            target->setDefault(report);
+            logPluginReport(report);
+#else
+            target->setDefault();
+#endif
+        } else {
+            // CLASSIC: backup + writable copy を作って writable copy を default に
+
+            const int prevNum =
+                (previousDefault != snapshots.end()) ? static_cast<int>(previousDefault->getNum()) : -1;
+
+            // (1) 現在状態の read-only バックアップ
+            snapper::SCD scd1;
+            scd1.description = (prevNum >= 0)
+                ? std::string("rollback backup of #") + std::to_string(prevNum)
+                : std::string("rollback backup");
+            scd1.cleanup = "number";
+            scd1.userdata["important"] = "yes";
+            scd1.read_only = true;
+
+            // (2) 対象 N の writable copy
+            snapper::SCD scd2;
+            scd2.description = std::string("writable copy of #") + std::to_string(number);
+            scd2.cleanup.clear();
+            scd2.read_only = false;
+
+#if LIBSNAPPER_VERSION_AT_LEAST(7, 4)
+            snapper::Snapshots::iterator backup =
+                snapper->createSingleSnapshot(scd1, report);
+            logPluginReport(report);
+
+            snapper::Snapshots::iterator writableCopy =
+                snapper->createSingleSnapshot(target, scd2, report);
+            logPluginReport(report);
+
+            // (3) previous_default に cleanup が空なら "number" を付与
+            if (previousDefault != snapshots.end() && previousDefault->getCleanup().empty()) {
+                snapper::SMD smd;
+                smd.description = previousDefault->getDescription();
+                smd.cleanup     = "number";
+                smd.userdata    = previousDefault->getUserdata();
+                snapper->modifySnapshot(previousDefault, smd, report);
+                logPluginReport(report);
+            }
+
+            // (4) writable copy を default に
+            writableCopy->setDefault(report);
+            logPluginReport(report);
+#else
+            snapper::Snapshots::iterator backup =
+                snapper->createSingleSnapshot(scd1);
+
+            snapper::Snapshots::iterator writableCopy =
+                snapper->createSingleSnapshot(target, scd2);
+
+            if (previousDefault != snapshots.end() && previousDefault->getCleanup().empty()) {
+                snapper::SMD smd;
+                smd.description = previousDefault->getDescription();
+                smd.cleanup     = "number";
+                smd.userdata    = previousDefault->getUserdata();
+                snapper->modifySnapshot(previousDefault, smd);
+            }
+
+            writableCopy->setDefault();
+#endif
+            (void)backup;
+        }
+
         return true;
 
     }

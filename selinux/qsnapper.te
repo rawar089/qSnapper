@@ -300,6 +300,9 @@ allow qsnapper_t cache_home_t:sock_file { getattr open read write create unlink 
 # User config directory (~/.config/) - full access for application settings (including inotify watch for fcitx etc.)
 allow qsnapper_t config_home_t:dir { getattr setattr open read search write add_name remove_name create rmdir ioctl watch watch_reads };
 allow qsnapper_t config_home_t:file { getattr setattr open read write append create unlink rename link map lock ioctl execute execute_no_trans };
+# Note: 一部ベースポリシー (古い refpolicy) では file クラスに watch / watch_reads が
+# 定義されていないため、ここでは allow せず audit ログに残るのを許容する。
+# fcitx 設定ファイルの inotify 監視に失敗するだけで qSnapper の機能には影響しない。
 allow qsnapper_t config_home_t:lnk_file { getattr read create unlink };
 allow qsnapper_t config_home_t:fifo_file { getattr open read write create unlink ioctl };
 allow qsnapper_t config_home_t:sock_file { getattr open read write create unlink };
@@ -674,6 +677,16 @@ optional {
     allow qsnapper_dbus_t policykit_t:dbus send_msg;
 }
 
+# Snapper plugins (e.g. grub plugin invoked from libsnapper during
+# setDefault() / rollback to update bootloader entries)
+# /usr/lib/snapper/plugins/grub is labeled snapper_grub_plugin_exec_t
+optional {
+    require {
+        type snapper_grub_plugin_exec_t;
+    }
+    allow qsnapper_dbus_t snapper_grub_plugin_exec_t:file { getattr open read execute execute_no_trans map };
+}
+
 # Snapper's own SELinux types (when snapperd policy is installed)
 # On Leap 16.0+, snapper files are labeled with snapperd_*_t types
 # instead of generic etc_t/var_lib_t/unlabeled_t
@@ -762,6 +775,25 @@ optional {
         type dma_device_t;
     }
     allow qsnapper_t dma_device_t:chr_file { ioctl open read write };
+}
+
+# User name resolution via /etc/passwd (getpwuid 等)
+# qSnapper GUI がユーザ情報表示のために参照する
+optional {
+    require {
+        type passwd_file_t;
+    }
+    allow qsnapper_t passwd_file_t:file { getattr open read };
+}
+
+# systemd userdb runtime (User name resolution via systemd userdbd)
+# 新しい systemd では NSS が systemd-userdbd 経由で問い合わせるため必要
+optional {
+    require {
+        type systemd_userdbd_runtime_t;
+    }
+    allow qsnapper_t systemd_userdbd_runtime_t:dir { getattr open read search };
+    allow qsnapper_t systemd_userdbd_runtime_t:sock_file { getattr open read write };
 }
 
 # init_var_run_t directory access (used on some distributions)
