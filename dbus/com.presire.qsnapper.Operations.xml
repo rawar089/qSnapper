@@ -2,22 +2,40 @@
  "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node>
   <interface name="com.presire.qsnapper.Operations">
+    <method name="ListConfigs">
+      <arg name="configs" type="as" direction="out"/>
+    </method>
     <method name="ListSnapshots">
+      <arg name="configName" type="s" direction="in"/>
       <arg name="snapshots" type="s" direction="out"/>
     </method>
     <method name="CreateSnapshot">
+      <arg name="configName" type="s" direction="in"/>
       <arg name="type" type="s" direction="in"/>
       <arg name="description" type="s" direction="in"/>
       <arg name="preNumber" type="i" direction="in"/>
       <arg name="cleanup" type="s" direction="in"/>
+      <arg name="userdata" type="a{ss}" direction="in"/>
       <arg name="important" type="b" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In5" value="QMap&lt;QString,QString&gt;"/>
       <arg name="snapshotData" type="s" direction="out"/>
     </method>
+    <method name="ModifySnapshot">
+      <arg name="configName" type="s" direction="in"/>
+      <arg name="number" type="i" direction="in"/>
+      <arg name="description" type="s" direction="in"/>
+      <arg name="cleanup" type="s" direction="in"/>
+      <arg name="userdata" type="a{ss}" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In4" value="QMap&lt;QString,QString&gt;"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <method name="DeleteSnapshot">
+      <arg name="configName" type="s" direction="in"/>
       <arg name="number" type="i" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
     <method name="RollbackSnapshot">
+      <arg name="configName" type="s" direction="in"/>
       <arg name="number" type="i" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
@@ -26,9 +44,22 @@
       <arg name="snapshotNumber" type="i" direction="in"/>
       <arg name="changes" type="s" direction="out"/>
     </method>
+    <method name="GetFileChangesBetween">
+      <arg name="configName" type="s" direction="in"/>
+      <arg name="number1" type="i" direction="in"/>
+      <arg name="number2" type="i" direction="in"/>
+      <arg name="changes" type="s" direction="out"/>
+    </method>
     <method name="GetFileDiffAndDetails">
       <arg name="configName" type="s" direction="in"/>
       <arg name="snapshotNumber" type="i" direction="in"/>
+      <arg name="filePath" type="s" direction="in"/>
+      <arg name="result" type="s" direction="out"/>
+    </method>
+    <method name="GetFileDiffBetween">
+      <arg name="configName" type="s" direction="in"/>
+      <arg name="number1" type="i" direction="in"/>
+      <arg name="number2" type="i" direction="in"/>
       <arg name="filePath" type="s" direction="in"/>
       <arg name="result" type="s" direction="out"/>
     </method>
@@ -44,6 +75,10 @@
       <arg name="snapshotNumber" type="i" direction="in"/>
       <arg name="filePaths" type="as" direction="in"/>
       <arg name="changeTypes" type="as" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="Authenticate">
+      <arg name="actionId" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
     <method name="Quit"/>

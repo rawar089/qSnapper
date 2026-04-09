@@ -64,6 +64,30 @@
         <translation>スナップショット作成</translation>
     </message>
     <message>
+        <source>Config:</source>
+        <translation>設定:</translation>
+    </message>
+    <message>
+        <source>Modify</source>
+        <translation>編集</translation>
+    </message>
+    <message>
+        <source>Compare</source>
+        <translation>比較</translation>
+    </message>
+    <message>
+        <source>User data (key=value per line):</source>
+        <translation>ユーザデータ (1行ごとに key=value):</translation>
+    </message>
+    <message>
+        <source>e.g.
+important=yes
+reason=manual-test</source>
+        <translation>例:
+important=yes
+reason=manual-test</translation>
+    </message>
+    <message>
         <source>Dark Mode</source>
         <translation>ダークモード</translation>
     </message>
@@ -611,6 +635,56 @@
     <message>
         <source>Issues: &lt;a href=&quot;https://github.com/presire/qSnapper/issues&quot;&gt;github.com/presire/qSnapper/issues&lt;/a&gt;</source>
         <translation>Issues: &lt;a href=&quot;https://github.com/presire/qSnapper/issues&quot;&gt;github.com/presire/qSnapper/issues&lt;/a&gt;</translation>
+    </message>
+</context>
+<context>
+    <name>SnapshotEditDialog</name>
+    <message>
+        <source>Modify Snapshot #%1</source>
+        <translation>スナップショット #%1 を編集</translation>
+    </message>
+    <message>
+        <source>Description:</source>
+        <translation>説明:</translation>
+    </message>
+    <message>
+        <source>Enter snapshot description</source>
+        <translation>スナップショットの説明を入力してください</translation>
+    </message>
+    <message>
+        <source>Cleanup algorithm:</source>
+        <translation>クリーンアップアルゴリズム:</translation>
+    </message>
+    <message>
+        <source>User data (key=value per line):</source>
+        <translation>ユーザデータ (1行ごとに key=value):</translation>
+    </message>
+    <message>
+        <source>e.g.
+important=yes
+reason=manual</source>
+        <translation>例:
+important=yes
+reason=manual</translation>
+    </message>
+</context>
+<context>
+    <name>CompareSnapshotsDialog</name>
+    <message>
+        <source>Compare Snapshot #%1 ↔ #%2</source>
+        <translation>スナップショット #%1 ↔ #%2 の比較</translation>
+    </message>
+    <message>
+        <source>Loading comparison...</source>
+        <translation>比較情報を読み込み中...</translation>
+    </message>
+    <message>
+        <source>Files that differ between snapshot #%1 and #%2</source>
+        <translation>スナップショット #%1 と #%2 で異なるファイル</translation>
+    </message>
+    <message>
+        <source>No differences found</source>
+        <translation>差分はありません</translation>
     </message>
 </context>
 </TS>

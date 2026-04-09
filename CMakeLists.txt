@@ -1,10 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(qsnapper VERSION 1.2.3 LANGUAGES CXX)
+project(qsnapper VERSION 1.3.0 LANGUAGES CXX)
 
 # Linux専用プロジェクト - 他のプラットフォームでは明示的にエラーを出す
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "qSnapper is only supported on Linux. Current platform: ${CMAKE_SYSTEM_NAME}")
+endif()
+
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "/usr" CACHE PATH "Install path prefix" FORCE)
 endif()
 
 include(GNUInstallDirs)
@@ -18,6 +22,10 @@ find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Quick Qml QuickControls2 DBus 
 find_package(PolkitQt6-1 REQUIRED)
 
 qt6_standard_project_setup()
+
+# QTP0004: サブディレクトリ (qml/pages, qml/components) の qmldir 要求を抑制
+# NO_PLUGIN 指定でリソース埋め込みのため qmldir は不要
+qt6_policy(SET QTP0004 OLD)
 
 set(SOURCES
     src/main.cpp
@@ -46,11 +54,15 @@ target_include_directories(qsnapper PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+# 注: NO_IMPORT_SCAN は共有ライブラリ Qt 向け。
+# QML プラグインは実行時にロードされるため finalize 段でのスキャン/リンクは不要。
+# 静的 Qt ビルドに切り替える場合はこのオプションを外すこと。
 qt6_add_qml_module(qsnapper
     URI QSnapper
     VERSION 1.0
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
+    NO_IMPORT_SCAN
     QML_FILES
         qml/Main.qml
         qml/pages/SnapshotListPage.qml
@@ -61,6 +73,8 @@ qt6_add_qml_module(qsnapper
         qml/components/AboutQtDialog.qml
         qml/components/SnapshotTableHeader.qml
         qml/components/SnapshotTableRow.qml
+        qml/components/SnapshotEditDialog.qml
+        qml/components/CompareSnapshotsDialog.qml
 )
 
 # アイコンリソースを別途追加 (QMLモジュールとは独立)
@@ -204,12 +218,10 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/qsnapper.desktop
     DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
 )
 
-# QMLプラグインのインポートと実行ファイルの最終化
-# Qt 6でQMLモジュールを正しくリンクするために必要
-if(QT_VERSION_MAJOR EQUAL 6)
-    qt_import_qml_plugins(qsnapper)
-    qt_finalize_executable(qsnapper)
-endif()
+# 注: qt_import_qml_plugins / qt_finalize_executable は静的 Qt ビルド用。
+# 共有ライブラリ Qt では qt6_standard_project_setup() + qt6_add_executable() が
+# 自動で finalize するため明示呼び出しは不要 (呼ぶと存在しないプラグインターゲットの
+# リンク警告が発生する)。
 
 ########################################
 # SELinux support (optional)

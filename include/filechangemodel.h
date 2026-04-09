@@ -65,7 +65,13 @@ class FileChangeModel : public QAbstractItemModel
 
 private:
     QString m_configName;                   // Snapper設定名
-    int m_snapshotNumber;                   // スナップショット番号
+    int m_snapshotNumber;                   // スナップショット番号 (対カレント比較モード用)
+    int m_compareNumber1;                   // 比較元スナップショット番号 (任意2スナップショット比較モード用)
+    int m_compareNumber2;                   // 比較先スナップショット番号 (同上)
+    bool m_betweenMode;                     // 任意2スナップショット比較モードかどうか
+    bool m_flatMode;                        // フラット表示モード (ツリー構築をバイパスし、
+                                            // 各変更を m_rootItem 直下に1行ずつ追加する)
+                                            // 比較ダイアログ用 (ListView 表示)
     FileChangeItem *m_rootItem;             // ツリーのルートアイテム
     QDBusInterface *m_dbusInterface;        // D-Busインターフェース
     bool m_hasChanges;                      // ファイル変更があるかどうか
@@ -98,6 +104,7 @@ private:
     void collectAllFilesRecursive(FileChangeItem *parent, QStringList &paths) const;
     void setItemCheckedRecursive(FileChangeItem *item, const QModelIndex &index, bool checked);
     void processNextBatch();
+    bool reconnectDbus();                    // D-Busサービスへの再接続を試みる
 
 
 public:
@@ -139,6 +146,7 @@ public:
 
     // 公開メソッド
     Q_INVOKABLE void loadChanges();
+    Q_INVOKABLE void loadChangesBetween(int number1, int number2, bool flat = false);
     Q_INVOKABLE void getFileDiffAndDetails(const QString &filePath);
     Q_INVOKABLE void setItemChecked(const QString &filePath, bool checked);
     Q_INVOKABLE QStringList getCheckedItems() const;

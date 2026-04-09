@@ -5,9 +5,22 @@
 #include <QDebug>
 #include <QRegularExpression>
 #include <QDBusConnection>
+#include <QDBusConnectionInterface>
 #include <QDBusReply>
 #include <QDBusError>
+#include <QDBusMetaType>
+#include <QMap>
 #include "snapperservice.h"
+
+// QVariantMap → QMap<QString,QString> 変換ヘルパー
+static QMap<QString, QString> toStringMap(const QVariantMap &src)
+{
+    QMap<QString, QString> out;
+    for (auto it = src.constBegin(); it != src.constEnd(); ++it) {
+        out.insert(it.key(), it.value().toString());
+    }
+    return out;
+}
 
 Q_LOGGING_CATEGORY(snapperLog, "qsnapper")
 
@@ -26,7 +39,12 @@ SnapperService::SnapperService(QObject *parent)
     , m_configuredChecked(false)
     , m_configureOnInstall(false)
     , m_dbusInterface(nullptr)
+    , m_configsChecked(false)
+    , m_currentConfig(QStringLiteral("root"))
 {
+    // QMap<QString,QString> の D-Bus 型登録 (クライアント側)
+    qDBusRegisterMetaType<QMap<QString, QString>>();
+
     m_dbusInterface = new QDBusInterface(
         "com.presire.qsnapper.Operations",
         "/com/presire/qsnapper/Operations",
@@ -67,6 +85,49 @@ SnapperService* SnapperService::instance()
 }
 
 /**
+ * @brief D-Busサービスへの再接続を試みる
+ *
+ * アイドルタイムアウトでヘルパープロセスが終了した場合など、
+ * D-Busインターフェースが無効になった際に呼び出す。
+ * QDBusInterface を再生成することで D-Bus activation が発動し、
+ * ヘルパープロセスが自動的に再起動される。
+ *
+ * @return 再接続に成功した場合はtrue
+ */
+bool SnapperService::reconnect()
+{
+    qCInfo(snapperLog) << "D-Bus service lost, attempting to reconnect...";
+
+    // startService() でヘルパーの起動完了を待ってから接続する。
+    // QDBusInterface 再生成だけでは activation の完了前に isValid() を
+    // 確認してしまい false が返ることがある。
+    // Qt6 では startService() は QDBusReply<void> を返すため isValid() のみ確認する。
+    auto startReply = QDBusConnection::systemBus().interface()->startService(
+        "com.presire.qsnapper.Operations");
+    if (!startReply.isValid()) {
+        qCCritical(snapperLog) << "Failed to start D-Bus service:"
+                               << startReply.error().message();
+        return false;
+    }
+
+    delete m_dbusInterface;
+    m_dbusInterface = new QDBusInterface(
+        "com.presire.qsnapper.Operations",
+        "/com/presire/qsnapper/Operations",
+        "com.presire.qsnapper.Operations",
+        QDBusConnection::systemBus(),
+        this
+    );
+    if (!m_dbusInterface->isValid()) {
+        qCCritical(snapperLog) << "Reconnection failed:"
+                               << QDBusConnection::systemBus().lastError().message();
+        return false;
+    }
+    qCInfo(snapperLog) << "Reconnected to D-Bus service successfully.";
+    return true;
+}
+
+/**
  * @brief Snapperが設定されているか確認
  *
  * Snapperが正しく設定されているかを確認します。
@@ -88,10 +149,61 @@ bool SnapperService::isConfigured()
     bool success = false;
     QString output = executeCommand("/usr/bin/snapper", args, success);
 
-    m_configured = success && output.contains("root,");
+    // 少なくとも 1 つの config が存在するかをチェック (ヘッダ行以外の行が1つ以上)
+    m_configured = false;
+    if (success) {
+        const QStringList lines = output.split('\n', Qt::SkipEmptyParts);
+        if (lines.size() >= 2) {
+            m_configured = true;
+        }
+    }
     m_configuredChecked = true;
 
     return m_configured;
+}
+
+/**
+ * @brief D-Bus 経由で利用可能な Snapper config 一覧を取得
+ */
+QStringList SnapperService::configs()
+{
+    // 注意: ここで遅延 refreshConfigs() を呼ぶと、プロパティゲッター評価中に
+    // configsChanged シグナルが発火し、QML 側で binding loop として検出される。
+    // 初回取得は QML の Component.onCompleted から明示的に refreshConfigs() を
+    // 呼ぶ契約とする。
+    return m_configs;
+}
+
+void SnapperService::refreshConfigs()
+{
+    if (!m_dbusInterface || !m_dbusInterface->isValid()) {
+        if (!reconnect()) {
+            qCCritical(snapperLog) << "D-Bus interface is not valid; cannot list configs";
+            return;
+        }
+    }
+    QDBusReply<QStringList> reply = m_dbusInterface->call("ListConfigs");
+    if (reply.isValid()) {
+        m_configs = reply.value();
+    } else {
+        qCWarning(snapperLog) << "ListConfigs failed:" << reply.error().message();
+        m_configs.clear();
+    }
+    m_configsChecked = true;
+    emit configsChanged();
+
+    // 現在の config が一覧に無ければ先頭を採用
+    if (!m_configs.isEmpty() && !m_configs.contains(m_currentConfig)) {
+        m_currentConfig = m_configs.first();
+        emit currentConfigChanged();
+    }
+}
+
+void SnapperService::setCurrentConfig(const QString &name)
+{
+    if (name == m_currentConfig) return;
+    m_currentConfig = name;
+    emit currentConfigChanged();
 }
 
 /**
@@ -152,13 +264,14 @@ bool SnapperService::createSnapshotAllowed(const QString &snapshotType) const
  */
 FsSnapshot* SnapperService::createSingle(const QString &description,
                                          FsSnapshot::CleanupAlgorithm cleanup,
-                                         bool important)
+                                         bool important,
+                                         const QVariantMap &userdata)
 {
     if (!createSnapshotAllowed("single")) {
         return nullptr;
     }
 
-    return create(FsSnapshot::SnapshotType::Single, description, nullptr, cleanup, important);
+    return create(FsSnapshot::SnapshotType::Single, description, nullptr, cleanup, important, userdata);
 }
 
 /**
@@ -174,13 +287,14 @@ FsSnapshot* SnapperService::createSingle(const QString &description,
  */
 FsSnapshot* SnapperService::createPre(const QString &description,
                                       FsSnapshot::CleanupAlgorithm cleanup,
-                                      bool important)
+                                      bool important,
+                                      const QVariantMap &userdata)
 {
     if (!createSnapshotAllowed("around")) {
         return nullptr;
     }
 
-    return create(FsSnapshot::SnapshotType::Pre, description, nullptr, cleanup, important);
+    return create(FsSnapshot::SnapshotType::Pre, description, nullptr, cleanup, important, userdata);
 }
 
 /**
@@ -198,7 +312,8 @@ FsSnapshot* SnapperService::createPre(const QString &description,
 FsSnapshot* SnapperService::createPost(const QString &description,
                                        int previousNumber,
                                        FsSnapshot::CleanupAlgorithm cleanup,
-                                       bool important)
+                                       bool important,
+                                       const QVariantMap &userdata)
 {
     if (!createSnapshotAllowed("around")) {
         return nullptr;
@@ -212,7 +327,7 @@ FsSnapshot* SnapperService::createPost(const QString &description,
         return nullptr;
     }
 
-    return create(FsSnapshot::SnapshotType::Post, description, previous, cleanup, important);
+    return create(FsSnapshot::SnapshotType::Post, description, previous, cleanup, important, userdata);
 }
 
 /**
@@ -225,11 +340,13 @@ FsSnapshot* SnapperService::createPost(const QString &description,
 QList<FsSnapshot*> SnapperService::all()
 {
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
-        qCCritical(snapperLog) << "D-Bus interface is not valid";
-        return QList<FsSnapshot*>();
+        if (!reconnect()) {
+            qCCritical(snapperLog) << "D-Bus interface is not valid";
+            return QList<FsSnapshot*>();
+        }
     }
 
-    QDBusReply<QString> reply = m_dbusInterface->call("ListSnapshots");
+    QDBusReply<QString> reply = m_dbusInterface->call("ListSnapshots", m_currentConfig);
 
     if (!reply.isValid()) {
         qCCritical(snapperLog) << "Failed to list snapshots via D-Bus:"
@@ -273,12 +390,14 @@ FsSnapshot* SnapperService::find(int number)
 bool SnapperService::rollback(int number)
 {
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
-        qCCritical(snapperLog) << "D-Bus interface is not valid";
-        emit rollbackFailed(tr("D-Bus connection failed."));
-        return false;
+        if (!reconnect()) {
+            qCCritical(snapperLog) << "D-Bus interface is not valid";
+            emit rollbackFailed(tr("D-Bus connection failed."));
+            return false;
+        }
     }
 
-    QDBusReply<bool> reply = m_dbusInterface->call("RollbackSnapshot", number);
+    QDBusReply<bool> reply = m_dbusInterface->call("RollbackSnapshot", m_currentConfig, number);
 
     if (!reply.isValid()) {
         qCCritical(snapperLog) << "Failed to rollback snapshot via D-Bus:"
@@ -311,12 +430,14 @@ bool SnapperService::rollback(int number)
 bool SnapperService::deleteSnapshot(int number)
 {
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
-        qCCritical(snapperLog) << "D-Bus interface is not valid";
-        emit snapshotDeletionFailed(number, tr("D-Bus connection failed."));
-        return false;
+        if (!reconnect()) {
+            qCCritical(snapperLog) << "D-Bus interface is not valid";
+            emit snapshotDeletionFailed(number, tr("D-Bus connection failed."));
+            return false;
+        }
     }
 
-    QDBusReply<bool> reply = m_dbusInterface->call("DeleteSnapshot", number);
+    QDBusReply<bool> reply = m_dbusInterface->call("DeleteSnapshot", m_currentConfig, number);
 
     if (!reply.isValid()) {
         qCCritical(snapperLog) << "Failed to delete snapshot via D-Bus:"
@@ -354,12 +475,15 @@ FsSnapshot* SnapperService::create(FsSnapshot::SnapshotType snapshotType,
                                    const QString &description,
                                    FsSnapshot *previous,
                                    FsSnapshot::CleanupAlgorithm cleanup,
-                                   bool important)
+                                   bool important,
+                                   const QVariantMap &userdata)
 {
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
-        qCCritical(snapperLog) << "D-Bus interface is not valid";
-        emit snapshotCreationFailed(tr("D-Bus connection failed."));
-        return nullptr;
+        if (!reconnect()) {
+            qCCritical(snapperLog) << "D-Bus interface is not valid";
+            emit snapshotCreationFailed(tr("D-Bus connection failed."));
+            return nullptr;
+        }
     }
 
     QString type = FsSnapshot::snapshotTypeToString(snapshotType);
@@ -369,11 +493,14 @@ FsSnapshot* SnapperService::create(FsSnapshot::SnapshotType snapshotType,
         cleanupStr = "none";
     }
 
+    const QMap<QString, QString> userdataMap = toStringMap(userdata);
     QDBusReply<QString> reply = m_dbusInterface->call("CreateSnapshot",
+                                                      m_currentConfig,
                                                       type,
                                                       description,
                                                       preNumber,
                                                       cleanupStr,
+                                                      QVariant::fromValue(userdataMap),
                                                       important);
 
     if (!reply.isValid()) {
@@ -393,6 +520,47 @@ FsSnapshot* SnapperService::create(FsSnapshot::SnapshotType snapshotType,
     }
 
     return nullptr;
+}
+
+/**
+ * @brief 既存スナップショットのメタデータを編集
+ *
+ * description / cleanup / userdata を更新します。成功時に snapshotModified シグナル、
+ * 失敗時に snapshotModificationFailed シグナルを発行します。
+ */
+bool SnapperService::modifySnapshot(int number,
+                                    const QString &description,
+                                    const QString &cleanup,
+                                    const QVariantMap &userdata)
+{
+    if (!m_dbusInterface || !m_dbusInterface->isValid()) {
+        if (!reconnect()) {
+            qCCritical(snapperLog) << "D-Bus interface is not valid";
+            emit snapshotModificationFailed(number, tr("D-Bus connection failed."));
+            return false;
+        }
+    }
+
+    const QMap<QString, QString> userdataMap = toStringMap(userdata);
+    QDBusReply<bool> reply = m_dbusInterface->call("ModifySnapshot",
+                                                   m_currentConfig,
+                                                   number,
+                                                   description,
+                                                   cleanup,
+                                                   QVariant::fromValue(userdataMap));
+    if (!reply.isValid()) {
+        qCCritical(snapperLog) << "ModifySnapshot failed:" << reply.error().message();
+        emit snapshotModificationFailed(number, tr("Failed to modify snapshot: %1").arg(reply.error().message()));
+        return false;
+    }
+
+    const bool success = reply.value();
+    if (success) {
+        emit snapshotModified(number);
+    } else {
+        emit snapshotModificationFailed(number, tr("Modify operation failed."));
+    }
+    return success;
 }
 
 /**
@@ -560,14 +728,13 @@ QList<FsSnapshot*> SnapperService::parseSnapshotList(const QString &csvOutput)
         QString description = fields[6];
 
         // Parse userdata (key1=value1,key2=value2 format)
+        // Note: the line was already split by ',' so each userdata pair is a separate field
         QVariantMap userdata;
-        if (fields.size() >= 8 && !fields[7].isEmpty()) {
-            QStringList userdataPairs = fields[7].split(',');
-            for (const QString &pair : userdataPairs) {
-                QStringList keyValue = pair.split('=');
-                if (keyValue.size() == 2) {
-                    userdata[keyValue[0]] = keyValue[1];
-                }
+        for (int j = 7; j < fields.size(); ++j) {
+            if (fields[j].isEmpty()) continue;
+            int eqIdx = fields[j].indexOf('=');
+            if (eqIdx > 0) {
+                userdata[fields[j].left(eqIdx)] = fields[j].mid(eqIdx + 1);
             }
         }
 

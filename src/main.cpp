@@ -10,6 +10,8 @@
 #include <QDir>
 #include <QDBusInterface>
 #include <QDBusConnection>
+#include <QDBusMetaType>
+#include <QMap>
 #include "fssnapshot.h"
 #include "snapperservice.h"
 #include "snapshotlistmodel.h"
@@ -21,6 +23,9 @@ int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
 
+    // QMap<QString,QString> を D-Bus a{ss} として送受信するためのメタ型登録
+    qDBusRegisterMetaType<QMap<QString, QString>>();
+
     app.setOrganizationName("Presire");
     app.setOrganizationDomain("https://github.com/presire");
     app.setApplicationName("qSnapper");
@@ -31,7 +36,7 @@ int main(int argc, char *argv[])
     appIcon.addFile(":/QSnapper/icons/qSnapper@256.png", QSize(256, 256));
     app.setWindowIcon(appIcon);
 
-    // 翻訳システムの設定
+    // 翻訳の設定
     QTranslator translator;
     QString locale = QLocale::system().name();
 
@@ -85,8 +90,8 @@ int main(int argc, char *argv[])
         "CleanupAlgorithm is an enum"
     );
 
-    // Fusionスタイルを強制: KDE Plasma 6の org.kde.desktop スタイルが
-    // QMLのPaletteを無視する問題を回避する
+    // Fusionスタイルを強制:
+    // KDE Plasma 6のorg.kde.desktopスタイルがQMLのPaletteを無視する問題を回避する
     QQuickStyle::setStyle("Fusion");
 
     QQmlApplicationEngine engine;

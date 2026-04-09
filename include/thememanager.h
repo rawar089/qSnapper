@@ -84,38 +84,38 @@ private:
 
     // ライトモードのカラーパレット
     struct LightColors {
-        static constexpr const char* snapshotSingle = "#4CAF50";
-        static constexpr const char* snapshotPre = "#2196F3";
-        static constexpr const char* snapshotPost = "#FF9800";
+        static constexpr const char* snapshotSingle  = "#4CAF50";
+        static constexpr const char* snapshotPre     = "#2196F3";
+        static constexpr const char* snapshotPost    = "#FF9800";
         static constexpr const char* snapshotDefault = "#9E9E9E";
 
-        static constexpr const char* fileCreated = "#4CAF50";
-        static constexpr const char* fileModified = "#2196F3";
-        static constexpr const char* fileDeleted = "#F44336";
+        static constexpr const char* fileCreated     = "#4CAF50";
+        static constexpr const char* fileModified    = "#2196F3";
+        static constexpr const char* fileDeleted     = "#F44336";
         static constexpr const char* fileTypeChanged = "#FF9800";
 
-        static constexpr const char* warning = "#FF5722";
-        static constexpr const char* error = "#F44336";
-        static constexpr const char* important = "#FFC107";
-        static constexpr const char* success = "#4CAF50";
+        static constexpr const char* warning         = "#FF5722";
+        static constexpr const char* error           = "#F44336";
+        static constexpr const char* important       = "#FFC107";
+        static constexpr const char* success         = "#4CAF50";
     };
 
     // ダークモードのカラーパレット
     struct DarkColors {
-        static constexpr const char* snapshotSingle = "#66BB6A";
-        static constexpr const char* snapshotPre = "#42A5F5";
-        static constexpr const char* snapshotPost = "#FFA726";
+        static constexpr const char* snapshotSingle  = "#66BB6A";
+        static constexpr const char* snapshotPre     = "#42A5F5";
+        static constexpr const char* snapshotPost    = "#FFA726";
         static constexpr const char* snapshotDefault = "#BDBDBD";
 
-        static constexpr const char* fileCreated = "#66BB6A";
-        static constexpr const char* fileModified = "#42A5F5";
-        static constexpr const char* fileDeleted = "#EF5350";
+        static constexpr const char* fileCreated     = "#66BB6A";
+        static constexpr const char* fileModified    = "#42A5F5";
+        static constexpr const char* fileDeleted     = "#EF5350";
         static constexpr const char* fileTypeChanged = "#FFA726";
 
-        static constexpr const char* warning = "#FF7043";
-        static constexpr const char* error = "#EF5350";
-        static constexpr const char* important = "#FFCA28";
-        static constexpr const char* success = "#66BB6A";
+        static constexpr const char* warning         = "#FF7043";
+        static constexpr const char* error           = "#EF5350";
+        static constexpr const char* important       = "#FFCA28";
+        static constexpr const char* success         = "#66BB6A";
     };
 };
 

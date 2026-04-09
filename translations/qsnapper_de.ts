@@ -64,6 +64,30 @@
         <translation>Schnappschuss erstellen</translation>
     </message>
     <message>
+        <source>Config:</source>
+        <translation>Konfiguration:</translation>
+    </message>
+    <message>
+        <source>Modify</source>
+        <translation>Bearbeiten</translation>
+    </message>
+    <message>
+        <source>Compare</source>
+        <translation>Vergleichen</translation>
+    </message>
+    <message>
+        <source>User data (key=value per line):</source>
+        <translation>Benutzerdaten (key=value pro Zeile):</translation>
+    </message>
+    <message>
+        <source>e.g.
+important=yes
+reason=manual-test</source>
+        <translation>z.B.
+important=yes
+reason=manual-test</translation>
+    </message>
+    <message>
         <source>Dark Mode</source>
         <translation>Dark Mode</translation>
     </message>
@@ -611,6 +635,56 @@
     <message>
         <source>Issues: &lt;a href=&quot;https://github.com/presire/qSnapper/issues&quot;&gt;github.com/presire/qSnapper/issues&lt;/a&gt;</source>
         <translation>Probleme: &lt;a href=&quot;https://github.com/presire/qSnapper/issues&quot;&gt;github.com/presire/qSnapper/issues&lt;/a&gt;</translation>
+    </message>
+</context>
+<context>
+    <name>SnapshotEditDialog</name>
+    <message>
+        <source>Modify Snapshot #%1</source>
+        <translation>Snapshot #%1 bearbeiten</translation>
+    </message>
+    <message>
+        <source>Description:</source>
+        <translation>Beschreibung:</translation>
+    </message>
+    <message>
+        <source>Enter snapshot description</source>
+        <translation>Snapshot-Beschreibung eingeben</translation>
+    </message>
+    <message>
+        <source>Cleanup algorithm:</source>
+        <translation>Bereinigungsalgorithmus:</translation>
+    </message>
+    <message>
+        <source>User data (key=value per line):</source>
+        <translation>Benutzerdaten (key=value pro Zeile):</translation>
+    </message>
+    <message>
+        <source>e.g.
+important=yes
+reason=manual</source>
+        <translation>z.B.
+important=yes
+reason=manual</translation>
+    </message>
+</context>
+<context>
+    <name>CompareSnapshotsDialog</name>
+    <message>
+        <source>Compare Snapshot #%1 ↔ #%2</source>
+        <translation>Snapshot #%1 ↔ #%2 vergleichen</translation>
+    </message>
+    <message>
+        <source>Loading comparison...</source>
+        <translation>Vergleich wird geladen...</translation>
+    </message>
+    <message>
+        <source>Files that differ between snapshot #%1 and #%2</source>
+        <translation>Unterschiedliche Dateien zwischen Snapshot #%1 und #%2</translation>
+    </message>
+    <message>
+        <source>No differences found</source>
+        <translation>Keine Unterschiede gefunden</translation>
     </message>
 </context>
 </TS>

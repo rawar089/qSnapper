@@ -6,6 +6,7 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QDBusConnection>
+#include <QDBusConnectionInterface>
 #include <QDBusReply>
 #include <QDBusError>
 #include <QDBusMessage>
@@ -164,6 +165,10 @@ bool FileChangeItem::isDirectory() const
 FileChangeModel::FileChangeModel(QObject *parent)
     : QAbstractItemModel(parent)
     , m_snapshotNumber(0)
+    , m_compareNumber1(0)
+    , m_compareNumber2(0)
+    , m_betweenMode(false)
+    , m_flatMode(false)
     , m_rootItem(nullptr)
     , m_dbusInterface(nullptr)
     , m_hasChanges(false)
@@ -195,6 +200,45 @@ FileChangeModel::FileChangeModel(QObject *parent)
         qWarning() << "Failed to connect to D-Bus service:"
                    << QDBusConnection::systemBus().lastError().message();
     }
+}
+
+/**
+ * @brief D-Busサービスへの再接続を試みる
+ *
+ * アイドルタイムアウトでヘルパープロセスが終了した場合など、D-Busインターフェースが無効になった場合に呼び出します。
+ * QDBusInterfaceを再生成することでD-Bus activationが発動し、ヘルパープロセスが自動的に再起動されます。
+ *
+ * @return 再接続に成功した場合はtrue
+ */
+bool FileChangeModel::reconnectDbus()
+{
+    qWarning() << "D-Bus service lost, attempting to reconnect...";
+
+    // startService()でヘルパーの起動完了を待ってから接続する
+    // Qt 6では、startService()はQDBusReply<void>を返すため、isValid()のみ確認する
+    auto startReply = QDBusConnection::systemBus().interface()->startService(
+        "com.presire.qsnapper.Operations");
+    if (!startReply.isValid()) {
+        qWarning() << "Failed to start D-Bus service:"
+                   << startReply.error().message();
+        return false;
+    }
+
+    delete m_dbusInterface;
+    m_dbusInterface = new QDBusInterface(
+        "com.presire.qsnapper.Operations",
+        "/com/presire/qsnapper/Operations",
+        "com.presire.qsnapper.Operations",
+        QDBusConnection::systemBus(),
+        this
+    );
+    if (!m_dbusInterface->isValid()) {
+        qWarning() << "Reconnection failed:"
+                   << QDBusConnection::systemBus().lastError().message();
+        return false;
+    }
+    qInfo() << "Reconnected to D-Bus service successfully.";
+    return true;
 }
 
 /**
@@ -254,6 +298,9 @@ void FileChangeModel::setSnapshotNumber(int number)
         m_snapshotNumber = number;
         emit snapshotNumberChanged();
     }
+    // snapshotNumber を明示セットした場合は「対カレント比較」モードに戻す
+    m_betweenMode = false;
+    m_flatMode    = false;
 }
 
 /**
@@ -264,24 +311,37 @@ void FileChangeModel::setSnapshotNumber(int number)
  */
 void FileChangeModel::loadChanges()
 {
-    if (m_configName.isEmpty() || m_snapshotNumber <= 0) {
+    // loadChanges()は、対カレント比較を強制 (QMLから呼ばれる想定)
+    // loadChangesBetween()は、別ルートで既にm_betweenMode = trueをセット済み
+    // そちらからはこの関数を通過しないため、ここではm_betweenModeを偽に戻してよい
+    // ただし、loadChangesBetween()側と共通化するために、呼び出し元が明示的にm_betweenModeを制御できるよう、再設定はしない
+    if (!m_betweenMode) {
+        // モード未設定の場合のみ「対カレント」にする
+    }
+
+    if (m_configName.isEmpty() ||
+        (!m_betweenMode && m_snapshotNumber <= 0) ||
+        (m_betweenMode && (m_compareNumber1 <= 0 || m_compareNumber2 <= 0))) {
         qWarning() << "Invalid config name or snapshot number:" << m_configName << m_snapshotNumber;
         emit errorOccurred("Invalid config name or snapshot number");
         return;
     }
 
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
-        qWarning() << "D-Bus interface is not valid";
-        emit errorOccurred("D-Bus connection failed");
-        return;
+        if (!reconnectDbus()) {
+            emit errorOccurred("D-Bus connection failed");
+            return;
+        }
     }
 
     // ローディング状態ON
     m_loading = true;
     emit loadingChanged();
 
-    // D-Bus経由でファイル変更を非同期取得
-    QDBusPendingCall pendingCall = m_dbusInterface->asyncCall("GetFileChanges", m_configName, m_snapshotNumber);
+    // 比較モードに応じて D-Bus メソッドを選択
+    QDBusPendingCall pendingCall = m_betweenMode
+        ? m_dbusInterface->asyncCall("GetFileChangesBetween", m_configName, m_compareNumber1, m_compareNumber2)
+        : m_dbusInterface->asyncCall("GetFileChanges", m_configName, m_snapshotNumber);
     QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall, this);
 
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *w) {
@@ -378,6 +438,33 @@ void FileChangeModel::loadChanges()
  *
  * @param filePath 復元するファイルのパス
  */
+/**
+ * @brief 任意の2つのスナップショット間のファイル変更を読み込む
+ *
+ * num1 --> num2 の差分を取得し、ツリー構造を構築します。
+ * 復元操作では使用されず、表示 / diff取得専用です。
+ */
+void FileChangeModel::loadChangesBetween(int number1, int number2, bool flat)
+{
+    if (m_configName.isEmpty() || number1 <= 0 || number2 <= 0) {
+        emit errorOccurred("Invalid config name or snapshot numbers");
+        return;
+    }
+    m_betweenMode     = true;
+    m_flatMode        = flat;   // true=フラット(比較ダイアログ), false=ツリー(復元プレビュー)
+    m_compareNumber1  = number1;
+    m_compareNumber2  = number2;
+    // 比較先スナップショットを主としておく (RestoreFiles 呼び出し時の参照用)
+    m_snapshotNumber  = number2;
+    loadChanges();
+}
+
+/**
+ * @brief 「対カレント」比較モードを強制して ロードする補助は現状未使用。
+ *        QML側でsetSnapshotNumber --> loadChanges()の順で呼び出す場合、
+ *        m_betweenModeが残らないよう、setSnapshotNumberでリセットする。
+ */
+
 void FileChangeModel::restoreSingleFile(const QString &filePath)
 {
     if (m_configName.isEmpty() || m_snapshotNumber <= 0 || filePath.isEmpty()) {
@@ -386,8 +473,10 @@ void FileChangeModel::restoreSingleFile(const QString &filePath)
     }
 
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
-        emit errorOccurred(tr("D-Bus interface is not valid"));
-        return;
+        if (!reconnectDbus()) {
+            emit errorOccurred(tr("D-Bus connection failed"));
+            return;
+        }
     }
 
     m_cancelRequested = false;
@@ -442,23 +531,35 @@ void FileChangeModel::restoreSingleFile(const QString &filePath)
 /**
  * @brief ファイルの差分と詳細情報を非同期で一括取得
  *
- * D-Bus経由でGetFileDiffAndDetailsを非同期呼び出しし、
- * 結果をfileDiffAndDetailsReadyシグナルで通知します。
+ * D-Bus経由でGetFileDiffAndDetailsを非同期で呼び出し、結果をfileDiffAndDetailsReadyシグナルで通知します。
  *
  * @param filePath 対象ファイルのパス
  */
 void FileChangeModel::getFileDiffAndDetails(const QString &filePath)
 {
-    if (m_configName.isEmpty() || m_snapshotNumber <= 0 || filePath.isEmpty()) {
+    if (m_configName.isEmpty() || filePath.isEmpty()) {
+        return;
+    }
+    if (!m_betweenMode && m_snapshotNumber <= 0) {
+        return;
+    }
+    if (m_betweenMode && (m_compareNumber1 <= 0 || m_compareNumber2 <= 0)) {
         return;
     }
 
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
-        qWarning() << "D-Bus interface is not valid";
-        return;
+        if (!reconnectDbus()) {
+            emit errorOccurred("D-Bus connection failed");
+            return;
+        }
     }
 
-    QDBusPendingCall pendingCall = m_dbusInterface->asyncCall("GetFileDiffAndDetails", m_configName, m_snapshotNumber, filePath);
+    // Pre↔Post 表示モード (m_betweenMode=true) では2スナップショット間の diff を取得し、
+    // それ以外 (対カレント) では従来どおり GetFileDiffAndDetails を呼ぶ。どちらも
+    // 戻り値フォーマット (details + ---DIFF_SEPARATOR--- + diff) は同一。
+    QDBusPendingCall pendingCall = m_betweenMode
+        ? m_dbusInterface->asyncCall("GetFileDiffBetween", m_configName, m_compareNumber1, m_compareNumber2, filePath)
+        : m_dbusInterface->asyncCall("GetFileDiffAndDetails", m_configName, m_snapshotNumber, filePath);
     QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall, this);
 
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, filePath](QDBusPendingCallWatcher *w) {
@@ -647,6 +748,40 @@ void FileChangeModel::setupModelData(const QStringList &changes)
     beginResetModel();
     clearModel();
 
+    // --- フラットモード: 2 スナップショット比較ダイアログ用 ---------------
+    // ListView は QAbstractItemModel のルート直下しか反復しないため、
+    // 各変更を m_rootItem の直接の子として 1 行ずつ追加する。
+    // 中間ディレクトリは生成せず、重複除去のみ行う。
+    if (m_flatMode) {
+        QSet<QString> seen;
+        for (const QString &line : changes) {
+            if (line.isEmpty())
+                continue;
+            QRegularExpression re("\\s+");
+            QStringList parts = line.split(re, Qt::SkipEmptyParts);
+            if (parts.size() < 2)
+                continue;
+
+            const QString statusChars = parts[0];
+            const QString filePath    = parts[1];
+
+            const bool    isDirectory    = filePath.endsWith('/');
+            const QString normalizedPath = isDirectory
+                ? filePath.left(filePath.length() - 1)
+                : filePath;
+            if (seen.contains(normalizedPath))
+                continue;
+            seen.insert(normalizedPath);
+
+            FileChangeItem::ChangeType type = parseChangeType(statusChars.at(0));
+            FileChangeItem *item = new FileChangeItem(filePath, type, statusChars, m_rootItem);
+            m_rootItem->appendChild(item);
+        }
+        endResetModel();
+        return;
+    }
+
+    // --- ツリーモード (従来): 対カレント比較 / 復元 UI 用 -------------------
     // アイテムマップ：正規化パス (スラッシュなし)→ FileChangeItem
     QMap<QString, FileChangeItem*> itemMap;
     itemMap[""] = m_rootItem;
@@ -1037,9 +1172,11 @@ bool FileChangeModel::restoreCheckedItems()
     }
 
     if (!m_dbusInterface || !m_dbusInterface->isValid()) {
-        emit errorOccurred("D-Bus connection failed");
-        emit restoreCompleted(false);
-        return false;
+        if (!reconnectDbus()) {
+            emit errorOccurred("D-Bus connection failed");
+            emit restoreCompleted(false);
+            return false;
+        }
     }
 
     // 事前認証: バッチ処理開始前に1回だけPolkit認証を実行

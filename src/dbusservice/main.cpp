@@ -1,12 +1,14 @@
-#include "snapshotoperations.h"
 #include <QCoreApplication>
 #include <QDBusConnection>
 #include <QDBusError>
+#include <QDBusMetaType>
+#include <QMap>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
 #include <QDateTime>
+#include "snapshotoperations.h"
 
 static const QString &logDir()
 {
@@ -58,6 +60,9 @@ static void fileMessageHandler(QtMsgType type, const QMessageLogContext &context
 int main(int argc, char *argv[])
 {
     qInstallMessageHandler(fileMessageHandler);
+
+    // QMap<QString,QString> を D-Bus a{ss} としてマーシャリングするために登録
+    qDBusRegisterMetaType<QMap<QString, QString>>();
 
     QCoreApplication app(argc, argv);
     app.setOrganizationName("Presire");

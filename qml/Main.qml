@@ -40,6 +40,15 @@ ApplicationWindow {
         placeholderText: "#9E9E9E"
         link: "#2196F3"
         linkVisited: "#9C27B0"
+        // 無効状態 (グレーアウト) の色定義
+        disabled {
+            buttonText: "#BDBDBD"
+            windowText: "#BDBDBD"
+            text: "#BDBDBD"
+            button: "#EEEEEE"
+            highlight: "#BDBDBD"
+            highlightedText: "#FFFFFF"
+        }
     }
 
     // ダークモードカラーパレット定義
@@ -64,6 +73,15 @@ ApplicationWindow {
         placeholderText: "#757575"
         link: "#42A5F5"
         linkVisited: "#BA68C8"
+        // 無効状態 (グレーアウト) の色定義
+        disabled {
+            buttonText: "#6E6E6E"
+            windowText: "#6E6E6E"
+            text: "#6E6E6E"
+            button: "#383838"
+            highlight: "#6E6E6E"
+            highlightedText: "#1E1E1E"
+        }
     }
 
     // メインコンテンツ: スナップショット一覧ページ

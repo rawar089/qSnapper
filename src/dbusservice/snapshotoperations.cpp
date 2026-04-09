@@ -98,9 +98,8 @@ void SnapshotOperations::Quit()
  * @brief 事前認証を実行
  *
  * バッチ復元などの連続操作の前に1回だけ呼び出し、Polkit認証を実行します。
- * 認証成功時にm_authenticatedフラグをセットし、以降のRestoreFiles/RestoreFilesDirect
- * 呼び出しでは再認証をスキップします。
- * フラグはD-Busサービスプロセスの生存期間中有効です（アイドルタイムアウト5分で自動クリア）。
+ * 認証成功時にm_authenticatedフラグをセットし、以降のRestoreFiles/RestoreFilesDirect呼び出しでは再認証をスキップします。
+ * フラグはD-Busサービスプロセスの生存期間中有効です。 (アイドルタイムアウト5分で自動クリア)
  *
  * @param actionId チェックするPolkitアクションID
  * @return 認証成功時true、失敗時false
@@ -118,7 +117,7 @@ bool SnapshotOperations::Authenticate(const QString &actionId)
 /**
  * @brief PolicyKitによる認証チェックを実行
  *
- * 指定されたアクションIDに対してユーザーが権限を持っているかを確認します。
+ * 指定されたアクションIDに対してユーザが権限を持っているかを確認します。
  * 権限がない場合はD-Busエラー応答を送信します。
  *
  * @param actionId チェックするアクションID
@@ -232,7 +231,7 @@ QString SnapshotOperations::formatSnapshotToCSV(const snapper::Snapper *snapper)
         csv += QString::fromStdString(snapshot.getCleanup()) + ",";
         csv += QString::fromStdString(snapshot.getDescription()) + ",";
 
-        // ユーザーデータをkey1=value1,key2=value2形式に変換
+        // ユーザデータを key1=value1,key2=value2形式に変換
         const std::map<std::string, std::string> &userdata = snapshot.getUserdata();
         QStringList userdataPairs;
         for (const auto &pair : userdata) {
@@ -254,14 +253,48 @@ QString SnapshotOperations::formatSnapshotToCSV(const snapper::Snapper *snapper)
  *
  * @return CSV形式のスナップショット一覧、失敗時は空文字列
  */
-QString SnapshotOperations::ListSnapshots()
+/**
+ * @brief 利用可能な Snapper 設定名のリストを返す
+ *
+ * `snapper --no-dbus --csvout list-configs --columns config` を呼び出し、
+ * 設定名のみを抜き出して配列で返します。
+ */
+QStringList SnapshotOperations::ListConfigs()
+{
+    if (!checkAuthorization("com.presire.qsnapper.list-snapshots")) {
+        return QStringList();
+    }
+
+    QStringList configs;
+    QProcess process;
+    process.start("/usr/bin/snapper",
+                  QStringList() << "--no-dbus" << "--csvout" << "list-configs"
+                                << "--columns" << "config");
+    process.waitForFinished(5000);
+    if (process.exitCode() != 0) {
+        qWarning() << "Failed to list snapper configs:" << process.readAllStandardError();
+        return configs;
+    }
+    const QStringList lines = QString::fromUtf8(process.readAllStandardOutput())
+                                  .split('\n', Qt::SkipEmptyParts);
+    // 先頭行はヘッダ "config" なのでスキップ
+    for (int i = 1; i < lines.size(); ++i) {
+        const QString name = lines[i].trimmed();
+        if (!name.isEmpty()) {
+            configs.append(name);
+        }
+    }
+    return configs;
+}
+
+QString SnapshotOperations::ListSnapshots(const QString &configName)
 {
     if (!checkAuthorization("com.presire.qsnapper.list-snapshots")) {
         return QString();
     }
 
     try {
-        snapper::Snapper *snapper = getSnapper("root");
+        snapper::Snapper *snapper = getSnapper(configName.isEmpty() ? QStringLiteral("root") : configName);
         if (!snapper) {
             sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
             return QString();
@@ -289,15 +322,16 @@ QString SnapshotOperations::ListSnapshots()
  * @param important 重要フラグ
  * @return 作成されたスナップショットのCSV情報、失敗時は空文字列
  */
-QString SnapshotOperations::CreateSnapshot(const QString &type, const QString &description,
-                                          int preNumber, const QString &cleanup, bool important)
+QString SnapshotOperations::CreateSnapshot(const QString &configName, const QString &type, const QString &description,
+                                          int preNumber, const QString &cleanup,
+                                          const QMap<QString, QString> &userdata, bool important)
 {
     if (!checkAuthorization("com.presire.qsnapper.create-snapshot")) {
         return QString();
     }
 
     try {
-        snapper::Snapper *snapper = getSnapper("root");
+        snapper::Snapper *snapper = getSnapper(configName.isEmpty() ? QStringLiteral("root") : configName);
         if (!snapper) {
             sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
             return QString();
@@ -307,6 +341,11 @@ QString SnapshotOperations::CreateSnapshot(const QString &type, const QString &d
         scd.description = description.toStdString();
         scd.cleanup = cleanup.toStdString();
         scd.read_only = true;
+
+        // ユーザが指定した key=value 形式のユーザデータをコピー
+        for (auto it = userdata.constBegin(); it != userdata.constEnd(); ++it) {
+            scd.userdata[it.key().toStdString()] = it.value().toStdString();
+        }
 
         if (important) {
             scd.userdata["important"] = "yes";
@@ -387,14 +426,65 @@ QString SnapshotOperations::CreateSnapshot(const QString &type, const QString &d
  * @param number 削除するスナップショット番号
  * @return 削除成功時true、失敗時false
  */
-bool SnapshotOperations::DeleteSnapshot(int number)
+/**
+ * @brief 既存スナップショットのメタデータを編集
+ *
+ * description / cleanup algorithm / userdata を差し替えます。
+ * 空文字列 ("") の description はそのまま空文字列で上書きされます。
+ * userdata は渡されたマップで完全に置き換わります。(差分ではない)
+ */
+bool SnapshotOperations::ModifySnapshot(const QString &configName, int number,
+                                        const QString &description, const QString &cleanup,
+                                        const QMap<QString, QString> &userdata)
+{
+    if (!checkAuthorization("com.presire.qsnapper.modify-snapshot")) {
+        return false;
+    }
+
+    try {
+        snapper::Snapper *snapper = getSnapper(configName.isEmpty() ? QStringLiteral("root") : configName);
+        if (!snapper) {
+            sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
+            return false;
+        }
+
+        snapper::Snapshots::iterator snapshot = snapper->getSnapshots().find(number);
+        if (snapshot == snapper->getSnapshots().end()) {
+            sendErrorReply(QDBusError::Failed, "Snapshot not found");
+            return false;
+        }
+
+        snapper::SMD smd;
+        smd.description = description.toStdString();
+        smd.cleanup     = cleanup.toStdString();
+        for (auto it = userdata.constBegin(); it != userdata.constEnd(); ++it) {
+            smd.userdata[it.key().toStdString()] = it.value().toStdString();
+        }
+
+#if LIBSNAPPER_VERSION_AT_LEAST(7, 4)
+        snapper::Plugins::Report report;
+        snapper->modifySnapshot(snapshot, smd, report);
+        logPluginReport(report);
+#else
+        snapper->modifySnapshot(snapshot, smd);
+#endif
+        return true;
+
+    } catch (const snapper::Exception &e) {
+        qWarning() << "Failed to modify snapshot:" << e.what();
+        sendErrorReply(QDBusError::Failed, QString("Failed to modify snapshot: %1").arg(e.what()));
+        return false;
+    }
+}
+
+bool SnapshotOperations::DeleteSnapshot(const QString &configName, int number)
 {
     if (!checkAuthorization("com.presire.qsnapper.delete-snapshot")) {
         return false;
     }
 
     try {
-        snapper::Snapper *snapper = getSnapper("root");
+        snapper::Snapper *snapper = getSnapper(configName.isEmpty() ? QStringLiteral("root") : configName);
         if (!snapper) {
             sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
             return false;
@@ -426,20 +516,19 @@ bool SnapshotOperations::DeleteSnapshot(int number)
 /**
  * @brief スナップショットにロールバック
  *
- * 指定されたスナップショットをデフォルトに設定し、次回起動時に
- * そのスナップショットの状態で起動するようにします。
+ * 指定されたスナップショットをデフォルトに設定し、次回起動時にそのスナップショットの状態で起動するようにします。
  *
  * @param number ロールバック先のスナップショット番号
  * @return 設定成功時true、失敗時false
  */
-bool SnapshotOperations::RollbackSnapshot(int number)
+bool SnapshotOperations::RollbackSnapshot(const QString &configName, int number)
 {
     if (!checkAuthorization("com.presire.qsnapper.rollback-snapshot")) {
         return false;
     }
 
     try {
-        snapper::Snapper *snapper = getSnapper("root");
+        snapper::Snapper *snapper = getSnapper(configName.isEmpty() ? QStringLiteral("root") : configName);
         if (!snapper) {
             sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
             return false;
@@ -454,14 +543,14 @@ bool SnapshotOperations::RollbackSnapshot(int number)
 
         // 'snapper rollback N' と同等の挙動を再現する。
         //
-        // CLI (client/snapper/cmd-rollback.cc) は ambit を以下で判定:
-        //   - previous_default が read-only  → TRANSACTIONAL
-        //       (新規スナップショット作成なしで対象を直接 default 化)
-        //   - previous_default が writable  → CLASSIC
-        //       (1) 現在状態の read-only バックアップ snapshot を作成
-        //       (2) 対象 N の writable copy snapshot を作成
-        //       (3) previous_default に cleanup が空なら "number" を付与
-        //       (4) (2) で作成した writable copy を default に設定
+        // CLI (client/snapper/cmd-rollback.cc) はambitを以下で判定する:
+        //   - previous_defaultがread-only --> TRANSACTIONAL
+        //     (新規スナップショット作成なしで対象を直接default化)
+        //   - previous_defaultがwritable --> CLASSIC
+        //       (1) 現在状態のread-onlyバックアップsnapshotを作成
+        //       (2) 対象Nのwritable copy snapshotを作成
+        //       (3) previous_defaultにcleanupが空なら"number"を付与
+        //       (4) (2)で作成したwritable copyをdefaultに設定
         snapper::Snapshots::iterator previousDefault = snapshots.getDefault();
         const bool transactional =
             (previousDefault != snapshots.end() && previousDefault->isReadOnly());
@@ -471,7 +560,7 @@ bool SnapshotOperations::RollbackSnapshot(int number)
 #endif
 
         if (transactional) {
-            // TRANSACTIONAL: 対象スナップショットをそのまま default に
+            // TRANSACTIONAL: 対象スナップショットをそのままdefaultに
 #if LIBSNAPPER_VERSION_AT_LEAST(7, 4)
             target->setDefault(report);
             logPluginReport(report);
@@ -479,12 +568,12 @@ bool SnapshotOperations::RollbackSnapshot(int number)
             target->setDefault();
 #endif
         } else {
-            // CLASSIC: backup + writable copy を作って writable copy を default に
+            // CLASSIC: backup + writable copyを作ってwritable copyをdefaultに
 
             const int prevNum =
                 (previousDefault != snapshots.end()) ? static_cast<int>(previousDefault->getNum()) : -1;
 
-            // (1) 現在状態の read-only バックアップ
+            // (1) 現在状態のread-onlyバックアップ
             snapper::SCD scd1;
             scd1.description = (prevNum >= 0)
                 ? std::string("rollback backup of #") + std::to_string(prevNum)
@@ -493,7 +582,7 @@ bool SnapshotOperations::RollbackSnapshot(int number)
             scd1.userdata["important"] = "yes";
             scd1.read_only = true;
 
-            // (2) 対象 N の writable copy
+            // (2) 対象Nのwritable copy
             snapper::SCD scd2;
             scd2.description = std::string("writable copy of #") + std::to_string(number);
             scd2.cleanup.clear();
@@ -508,7 +597,7 @@ bool SnapshotOperations::RollbackSnapshot(int number)
                 snapper->createSingleSnapshot(target, scd2, report);
             logPluginReport(report);
 
-            // (3) previous_default に cleanup が空なら "number" を付与
+            // (3) previous_defaultにcleanupが空なら"number"を付与
             if (previousDefault != snapshots.end() && previousDefault->getCleanup().empty()) {
                 snapper::SMD smd;
                 smd.description = previousDefault->getDescription();
@@ -518,7 +607,7 @@ bool SnapshotOperations::RollbackSnapshot(int number)
                 logPluginReport(report);
             }
 
-            // (4) writable copy を default に
+            // (4) writable copyをdefaultに
             writableCopy->setDefault(report);
             logPluginReport(report);
 #else
@@ -554,8 +643,7 @@ bool SnapshotOperations::RollbackSnapshot(int number)
 /**
  * @brief ファイル変更一覧を取得
  *
- * 指定されたスナップショットと現在のシステム状態を比較し、
- * 変更されたファイルの一覧を取得します。
+ * 指定されたスナップショットと現在のシステム状態を比較し、変更されたファイルの一覧を取得します。
  *
  * @param configName Snapper設定名
  * @param snapshotNumber 比較元のスナップショット番号
@@ -626,10 +714,170 @@ QString SnapshotOperations::GetFileChanges(const QString &configName, int snapsh
 
 
 /**
+ * @brief 2 つのスナップショット間のファイル変更リストを取得
+ *
+ * `snapshot1 → snapshot2` の差分を取得します。現在のシステム状態は使用しません。
+ * GetFileChanges の「任意 2 snapshot 間」版です。
+ */
+QString SnapshotOperations::GetFileChangesBetween(const QString &configName, int number1, int number2)
+{
+    if (!checkAuthorization("com.presire.qsnapper.list-snapshots")) {
+        return QString();
+    }
+
+    try {
+        snapper::Snapper *snapper = getSnapper(configName.isEmpty() ? QStringLiteral("root") : configName);
+        if (!snapper) {
+            sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
+            return QString();
+        }
+
+        snapper::Snapshots::const_iterator snapshot1 = snapper->getSnapshots().find(number1);
+        snapper::Snapshots::const_iterator snapshot2 = snapper->getSnapshots().find(number2);
+
+        if (snapshot1 == snapper->getSnapshots().end() || snapshot2 == snapper->getSnapshots().end()) {
+            sendErrorReply(QDBusError::Failed, "Snapshot not found");
+            return QString();
+        }
+
+        snapper::Comparison comparison(snapper, snapshot1, snapshot2, false);
+        const snapper::Files &files = comparison.getFiles();
+
+        QString output;
+        for (auto it = files.begin(); it != files.end(); ++it) {
+            const snapper::File &file = *it;
+            unsigned int status = file.getPreToPostStatus();
+
+            QString statusStr;
+            if (status & snapper::CREATED) statusStr += "+";
+            if (status & snapper::DELETED) statusStr += "-";
+            if (status & snapper::TYPE) statusStr += "t";
+            if (status & snapper::CONTENT) statusStr += "c";
+            if (status & snapper::PERMISSIONS) statusStr += "p";
+            if (status & snapper::OWNER) statusStr += "u";
+            if (status & snapper::GROUP) statusStr += "g";
+            if (status & snapper::XATTRS) statusStr += "x";
+            if (status & snapper::ACL) statusStr += "a";
+            if (statusStr.isEmpty()) statusStr = ".....";
+            statusStr = statusStr.leftJustified(5, '.');
+
+            output += statusStr + " " + QString::fromStdString(file.getName()) + "\n";
+        }
+
+        return output;
+
+    } catch (const snapper::Exception &e) {
+        qWarning() << "Failed to get file changes between snapshots:" << e.what();
+        sendErrorReply(QDBusError::Failed, QString("Failed to get file changes: %1").arg(e.what()));
+        return QString();
+    }
+}
+
+/**
+ * @brief 2つのスナップショット間の個別ファイルの詳細 + diff を取得
+ *
+ * GetFileDiffAndDetailsの任意2-snapshot間版
+ * snapshot1側のパーミッションとsnapshot2側のパーミッションを返し、diff部も両snapshot上のファイルを比較します。
+ */
+QString SnapshotOperations::GetFileDiffBetween(const QString &configName, int number1, int number2, const QString &filePath)
+{
+    if (!checkAuthorization("com.presire.qsnapper.list-snapshots")) {
+        return QString();
+    }
+
+    try {
+        snapper::Snapper *snapper = getSnapper(configName.isEmpty() ? QStringLiteral("root") : configName);
+        if (!snapper) {
+            sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
+            return QString();
+        }
+
+        snapper::Snapshots::const_iterator snapshot1 = snapper->getSnapshots().find(number1);
+        snapper::Snapshots::const_iterator snapshot2 = snapper->getSnapshots().find(number2);
+
+        if (snapshot1 == snapper->getSnapshots().end() || snapshot2 == snapper->getSnapshots().end()) {
+            sendErrorReply(QDBusError::Failed, "Snapshot not found");
+            return QString();
+        }
+
+        snapper::Comparison comparison(snapper, snapshot1, snapshot2, true);
+        const snapper::Files &files = comparison.getFiles();
+
+        auto fileIt = files.findAbsolutePath(filePath.toStdString());
+        if (fileIt == files.end()) {
+            return QString();
+        }
+
+        unsigned int status = fileIt->getPreToPostStatus();
+        QString statusStr;
+        if (status & snapper::CREATED) statusStr += "+";
+        if (status & snapper::DELETED) statusStr += "-";
+        if (status & snapper::TYPE) statusStr += "t";
+        if (status & snapper::CONTENT) statusStr += "c";
+        if (status & snapper::PERMISSIONS) statusStr += "p";
+        if (status & snapper::OWNER) statusStr += "u";
+        if (status & snapper::GROUP) statusStr += "g";
+        if (status & snapper::XATTRS) statusStr += "x";
+        if (status & snapper::ACL) statusStr += "a";
+        if (statusStr.isEmpty()) statusStr = ".....";
+        statusStr = statusStr.leftJustified(5, '.');
+
+        auto permsToOctal = [](QFile::Permissions p) -> QString {
+            int mode = 0;
+            if (p & QFile::ReadOwner)  mode |= 0400;
+            if (p & QFile::WriteOwner) mode |= 0200;
+            if (p & QFile::ExeOwner)   mode |= 0100;
+            if (p & QFile::ReadGroup)  mode |= 0040;
+            if (p & QFile::WriteGroup) mode |= 0020;
+            if (p & QFile::ExeGroup)   mode |= 0010;
+            if (p & QFile::ReadOther)  mode |= 0004;
+            if (p & QFile::WriteOther) mode |= 0002;
+            if (p & QFile::ExeOther)   mode |= 0001;
+            return QString("%1").arg(mode, 4, 8, QChar('0'));
+        };
+
+        QString detailsPart;
+        detailsPart += "status=" + statusStr + "\n";
+
+        // snapshot1をLOC_PREとして扱い、snapshot2をLOC_POSTとして扱う
+        QString path1 = QString::fromStdString(fileIt->getAbsolutePath(snapper::LOC_PRE));
+        QFileInfo info1(path1);
+        if (info1.exists()) {
+            detailsPart += "snapshotPerms=" + permsToOctal(info1.permissions()) + "\n";
+            detailsPart += "snapshotOwner=" + info1.owner() + "\n";
+            detailsPart += "snapshotGroup=" + info1.group() + "\n";
+        }
+
+        QString path2 = QString::fromStdString(fileIt->getAbsolutePath(snapper::LOC_POST));
+        QFileInfo info2(path2);
+        if (info2.exists()) {
+            detailsPart += "currentPerms=" + permsToOctal(info2.permissions()) + "\n";
+            detailsPart += "currentOwner=" + info2.owner() + "\n";
+            detailsPart += "currentGroup=" + info2.group() + "\n";
+        }
+
+        QString diffPart;
+        if (info1.exists() && info2.exists()) {
+            QProcess process;
+            process.start("diff", QStringList() << "-u" << path1 << path2);
+            process.waitForFinished(10000);
+            diffPart = QString::fromUtf8(process.readAllStandardOutput());
+        }
+
+        return detailsPart + "---DIFF_SEPARATOR---\n" + diffPart;
+
+    } catch (const snapper::Exception &e) {
+        qWarning() << "Failed to get file diff between snapshots:" << e.what();
+        sendErrorReply(QDBusError::Failed, QString("Failed to get file diff: %1").arg(e.what()));
+        return QString();
+    }
+}
+
+/**
  * @brief ファイルの差分と詳細情報を一括取得
  *
- * 1回のComparisonオブジェクト生成で、差分(diff)と詳細情報(パーミッション等)の
- * 両方を取得します。GetFileDiff + GetFileDetails の統合版です。
+ * 1回のComparisonオブジェクト生成で、差分(diff)と詳細情報(パーミッション等)の両方を取得します。
+ * GetFileDiff + GetFileDetailsの統合版です。
  *
  * @param configName Snapper設定名
  * @param snapshotNumber 比較元のスナップショット番号
@@ -965,9 +1213,8 @@ bool SnapshotOperations::RestoreFiles(const QString &configName, int snapshotNum
 /**
  * @brief ファイルをスナップショットから直接コピーして復元 (高速版)
  *
- * Comparisonオブジェクトを使用せず、スナップショットのマウントパスから
- * 直接ファイルをコピーして復元します。btrfsではreflink (COW) により
- * 高速なコピーが可能です。
+ * Comparisonオブジェクトを使用せず、スナップショットのマウントパスから直接ファイルをコピーして復元します。
+ * btrfsではreflink (COW) により高速なコピーが可能です。
  *
  * @param configName Snapper設定名
  * @param snapshotNumber 復元元のスナップショット番号

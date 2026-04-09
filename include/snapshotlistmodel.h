@@ -3,6 +3,7 @@
 
 #include <QAbstractListModel>
 #include <QList>
+#include <QVariantMap>
 #include "fssnapshot.h"
 
 class SnapperService;
@@ -36,12 +37,19 @@ public:
     int count() const { return m_snapshots.count(); }
 
     Q_INVOKABLE void refresh();
-    Q_INVOKABLE void createSingleSnapshot(const QString &description);
-    Q_INVOKABLE void createPreSnapshot(const QString &description);
-    Q_INVOKABLE void createPostSnapshot(const QString &description, int previousNumber);
+    Q_INVOKABLE void createSingleSnapshot(const QString &description,
+                                          const QVariantMap &userdata = QVariantMap());
+    Q_INVOKABLE void createPreSnapshot(const QString &description,
+                                       const QVariantMap &userdata = QVariantMap());
+    Q_INVOKABLE void createPostSnapshot(const QString &description, int previousNumber,
+                                        const QVariantMap &userdata = QVariantMap());
     Q_INVOKABLE void rollbackSnapshot(int number);
     Q_INVOKABLE void deleteSnapshot(int number);
     Q_INVOKABLE void deleteSnapshots(const QVariantList &numbers);
+    Q_INVOKABLE void modifySnapshot(int number,
+                                    const QString &description,
+                                    const QString &cleanup,
+                                    const QVariantMap &userdata);
 
 signals:
     void countChanged();
@@ -52,6 +60,8 @@ signals:
     void snapshotDeleted(int number);
     void snapshotDeletionFailed(int number, const QString &error);
     void snapshotsDeletionCompleted(int successCount, int failureCount);
+    void snapshotModified(int number);
+    void snapshotModificationFailed(int number, const QString &error);
 
 private slots:
     void onSnapshotCreated(FsSnapshot *snapshot);

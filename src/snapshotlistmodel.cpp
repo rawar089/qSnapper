@@ -6,8 +6,7 @@
  * @brief SnapshotListModelオブジェクトを構築
  *
  * スナップショット一覧をQMLで表示するためのリストモデルを構築する。
- * SnapperServiceのシグナルを接続し、スナップショット操作の結果を
- * モデルに反映する。
+ * SnapperServiceのシグナルを接続し、スナップショット操作の結果をモデルに反映する。
  *
  * @param parent 親QObjectポインタ
  */
@@ -155,9 +154,9 @@ void SnapshotListModel::refresh()
  *
  * @param description スナップショットの説明文
  */
-void SnapshotListModel::createSingleSnapshot(const QString &description)
+void SnapshotListModel::createSingleSnapshot(const QString &description, const QVariantMap &userdata)
 {
-    m_snapperService->createSingle(description);
+    m_snapperService->createSingle(description, FsSnapshot::CleanupAlgorithm::None, false, userdata);
 }
 
 /**
@@ -171,9 +170,9 @@ void SnapshotListModel::createSingleSnapshot(const QString &description)
  *
  * @param description スナップショットの説明文
  */
-void SnapshotListModel::createPreSnapshot(const QString &description)
+void SnapshotListModel::createPreSnapshot(const QString &description, const QVariantMap &userdata)
 {
-    m_snapperService->createPre(description);
+    m_snapperService->createPre(description, FsSnapshot::CleanupAlgorithm::None, false, userdata);
 }
 
 /**
@@ -188,9 +187,26 @@ void SnapshotListModel::createPreSnapshot(const QString &description)
  * @param description スナップショットの説明文
  * @param previousNumber ペアにするPreスナップショットの番号
  */
-void SnapshotListModel::createPostSnapshot(const QString &description, int previousNumber)
+void SnapshotListModel::createPostSnapshot(const QString &description, int previousNumber, const QVariantMap &userdata)
 {
-    m_snapperService->createPost(description, previousNumber);
+    m_snapperService->createPost(description, previousNumber, FsSnapshot::CleanupAlgorithm::None, false, userdata);
+}
+
+/**
+ * @brief 既存スナップショットを編集
+ */
+void SnapshotListModel::modifySnapshot(int number,
+                                       const QString &description,
+                                       const QString &cleanup,
+                                       const QVariantMap &userdata)
+{
+    bool success = m_snapperService->modifySnapshot(number, description, cleanup, userdata);
+    if (success) {
+        refresh();
+        emit snapshotModified(number);
+    } else {
+        emit snapshotModificationFailed(number, tr("Failed to modify snapshot #%1").arg(number));
+    }
 }
 
 /**
@@ -277,8 +293,7 @@ void SnapshotListModel::onSnapshotCreated(FsSnapshot *snapshot)
 /**
  * @brief スナップショット作成失敗時の内部ハンドラ
  *
- * SnapperServiceからのスナップショット作成失敗シグナルを受け取り、
- * エラーメッセージをQMLに転送する。
+ * SnapperServiceからのスナップショット作成失敗シグナルを受け取り、エラーメッセージをQMLに転送する。
  *
  * @param error エラーメッセージ
  */
@@ -290,8 +305,7 @@ void SnapshotListModel::onSnapshotCreationFailed(const QString &error)
 /**
  * @brief ロールバック成功時の内部ハンドラ
  *
- * SnapperServiceからのロールバック成功シグナルを受け取り、
- * モデルを更新してQMLにシグナルを転送する。
+ * SnapperServiceからのロールバック成功シグナルを受け取り、モデルを更新してQMLにシグナルを転送する。
  */
 void SnapshotListModel::onRollbackCompleted()
 {
@@ -302,8 +316,7 @@ void SnapshotListModel::onRollbackCompleted()
 /**
  * @brief ロールバック失敗時の内部ハンドラ
  *
- * SnapperServiceからのロールバック失敗シグナルを受け取り、
- * エラーメッセージをQMLに転送する。
+ * SnapperServiceからのロールバック失敗シグナルを受け取り、エラーメッセージをQMLに転送する。
  *
  * @param error エラーメッセージ
  */

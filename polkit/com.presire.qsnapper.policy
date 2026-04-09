@@ -47,6 +47,20 @@
     </defaults>
   </action>
 
+  <action id="com.presire.qsnapper.modify-snapshot">
+    <description>Modify a system snapshot's metadata</description>
+    <description xml:lang="ja">システムスナップショットのメタデータを編集</description>
+    <description xml:lang="de">Metadaten eines System-Snapshots ändern</description>
+    <message>Authentication is required to modify a system snapshot</message>
+    <message xml:lang="ja">システムスナップショットを編集するには認証が必要です</message>
+    <message xml:lang="de">Zur Bearbeitung eines System-Snapshots ist eine Legitimierung erforderlich.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
   <action id="com.presire.qsnapper.rollback-snapshot">
     <description>Rollback to a system snapshot</description>
     <description xml:lang="ja">システムスナップショットに復元</description>

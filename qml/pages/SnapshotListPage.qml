@@ -109,8 +109,49 @@ Page {
                 text: qsTr("qSnapper")
                 font.bold: true
                 font.pixelSize: 18
-                Layout.fillWidth: true
             }
+
+            // Snapper config 切替 ComboBox
+            Label {
+                text: qsTr("Config:")
+                font.pixelSize: 14
+                Layout.leftMargin: 10
+            }
+            ComboBox {
+                id: configCombo
+                model: SnapperService.configs
+                Layout.preferredWidth: 140
+
+                // model / currentConfig の変化に応じて currentIndex を更新する。
+                // 宣言的バインドにすると QML が model→currentIndex→model の
+                // 循環とみなして binding loop を検出するため、Connections 経由で
+                // 命令的に設定する。
+                function syncCurrentIndex() {
+                    var idx = SnapperService.configs.indexOf(SnapperService.currentConfig)
+                    currentIndex = idx >= 0 ? idx : 0
+                }
+
+                Connections {
+                    target: SnapperService
+                    function onConfigsChanged() { configCombo.syncCurrentIndex() }
+                    function onCurrentConfigChanged() { configCombo.syncCurrentIndex() }
+                }
+
+                onActivated: {
+                    var name = model[currentIndex]
+                    if (name && name !== SnapperService.currentConfig) {
+                        SnapperService.currentConfig = name
+                        root.clearSelection()
+                        snapshotListModel.refresh()
+                    }
+                }
+                Component.onCompleted: {
+                    SnapperService.refreshConfigs()
+                    syncCurrentIndex()
+                }
+            }
+
+            Item { Layout.fillWidth: true }
 
             // 選択数表示ラベル
             Label {
@@ -135,6 +176,7 @@ Page {
                 text: qsTr("Delete Selected")
                 icon.name: "edit-delete"
                 enabled: root.selectedCount > 0
+                opacity: enabled ? 1.0 : 0.45
                 onClicked: deleteConfirmDialog.open()
             }
 
@@ -143,6 +185,39 @@ Page {
                 text: qsTr("Create Snapshot")
                 icon.name: "list-add"
                 onClicked: createSnapshotDialog.open()
+            }
+
+            // 編集ボタン (Modify)
+            Button {
+                text: qsTr("Modify")
+                icon.name: "document-edit"
+                enabled: root.selectedCount === 1
+                opacity: enabled ? 1.0 : 0.45
+                onClicked: {
+                    var num = root.selectedSnapshots[0]
+                    var snap = SnapperService.find(num)
+                    if (snap) {
+                        editDialog.snapshotNumber = snap.number
+                        editDialog.descriptionInitial = snap.description
+                        editDialog.cleanupInitial = snap.cleanupAlgoString()
+                        editDialog.userdataInitial = snap.userdata
+                        editDialog.open()
+                    }
+                }
+            }
+
+            // 2スナップショット比較ボタン
+            Button {
+                text: qsTr("Compare")
+                icon.name: "view-visible"
+                enabled: root.selectedCount === 2
+                opacity: enabled ? 1.0 : 0.45
+                onClicked: {
+                    compareDialog.num1 = root.selectedSnapshots[0]
+                    compareDialog.num2 = root.selectedSnapshots[1]
+                    compareDialog.configName = SnapperService.currentConfig
+                    compareDialog.open()
+                }
             }
 
             // セパレータ
@@ -327,6 +402,52 @@ Page {
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
+
+            // ユーザデータ入力 (key=value, 1 行 1 ペア, カンマ区切りも可)
+            Label {
+                text: qsTr("User data (key=value per line):")
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 80
+                color: palette.base
+                border.color: userdataField.activeFocus
+                    ? palette.highlight
+                    : Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.35)
+                border.width: userdataField.activeFocus ? 2 : 1
+                radius: 3
+
+                ScrollView {
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    clip: true
+
+                    TextArea {
+                        id: userdataField
+                        placeholderText: qsTr("e.g.\nimportant=yes\nreason=manual-test")
+                        wrapMode: TextArea.NoWrap
+                        color: palette.text
+                        placeholderTextColor: palette.placeholderText
+                        background: null
+                    }
+                }
+            }
+        }
+
+        // userdata テキストを { k: v } に変換するヘルパー
+        function parseUserdata(text) {
+            var result = ({})
+            var lines = text.split(/[\n,]/)
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim()
+                if (line.length === 0) continue
+                var eq = line.indexOf("=")
+                if (eq <= 0) continue
+                var key = line.substring(0, eq).trim()
+                var val = line.substring(eq + 1).trim()
+                if (key.length > 0) result[key] = val
+            }
+            return result
         }
 
         // OKボタン押下時の処理
@@ -337,19 +458,35 @@ Page {
                 return
             }
 
+            var ud = createSnapshotDialog.parseUserdata(userdataField.text)
             if (snapshotTypeCombo.currentIndex === 0) {
-                snapshotListModel.createSingleSnapshot(descriptionField.text)
+                snapshotListModel.createSingleSnapshot(descriptionField.text, ud)
             } else {
-                snapshotListModel.createPreSnapshot(descriptionField.text)
+                snapshotListModel.createPreSnapshot(descriptionField.text, ud)
             }
 
             descriptionField.text = ""
+            userdataField.text = ""
         }
 
         // キャンセルボタン押下時の処理
         onRejected: {
             descriptionField.text = ""
+            userdataField.text = ""
         }
+    }
+
+    // スナップショット編集ダイアログ
+    SnapshotEditDialog {
+        id: editDialog
+        snapshotListModel: snapshotListModel
+        anchors.centerIn: Overlay.overlay
+    }
+
+    // 2スナップショット比較ダイアログ
+    CompareSnapshotsDialog {
+        id: compareDialog
+        anchors.centerIn: Overlay.overlay
     }
 
     // 削除確認ダイアログ

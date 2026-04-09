@@ -1,8 +1,8 @@
-#include "thememanager.h"
 #include <QSettings>
 #include <QGuiApplication>
 #include <QStyleHints>
 #include <QDebug>
+#include "thememanager.h"
 
 ThemeManager* ThemeManager::s_instance = nullptr;
 
