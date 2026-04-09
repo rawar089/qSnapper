@@ -55,7 +55,7 @@ signals:
 
 private:
     bool checkAuthorization(const QString &actionId);
-    snapper::Snapper* getSnapper(const QString &configName = "root");
+    snapper::Snapper* getSnapper(const QString &configName = "root", bool forceReload = false);
     QString formatSnapshotToCSV(const snapper::Snapper *snapper);
     QString snapshotTypeToString(int type);
     int stringToSnapshotType(const QString &typeStr);

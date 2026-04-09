@@ -71,6 +71,7 @@ Page {
 
         // 複数スナップショット削除完了時のシグナルハンドラ
         onSnapshotsDeletionCompleted: function(successCount, failureCount) {
+            deletingBusyDialog.close()
             root.clearSelection()
             if (failureCount === 0) {
                 statusBar.showMessage(qsTr("Deleted %1 snapshot(s)").arg(successCount), 3000)
@@ -540,7 +541,61 @@ Page {
         }
 
         // 削除実行
+        // 先にPolkit認証を実行し、成功した場合のみBusyダイアログを表示して削除を開始する
         onAccepted: {
+            if (!snapshotListModel.authenticateForDelete()) {
+                errorDialog.text = qsTr("Authentication failed.")
+                errorDialog.open()
+                return
+            }
+            deletingBusyDialog.open()
+        }
+    }
+
+    // 削除処理中のウェイト表示ダイアログ
+    Dialog {
+        id: deletingBusyDialog
+        title: qsTr("Please wait")
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        standardButtons: Dialog.NoButton
+        width: {
+            if (!ApplicationWindow.window) return 400
+            var calculated = ApplicationWindow.window.width * 0.3
+            return Math.min(Math.max(calculated, 400), 600)
+        }
+
+        // ダイアログが完全に表示された後にタイマーを起動
+        onOpened: {
+            deletionDelayTimer.start()
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 15
+
+            BusyIndicator {
+                running: deletingBusyDialog.visible
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Label {
+                text: qsTr("Deleting snapshots, please wait...")
+                font.pixelSize: 14
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+    }
+
+    // ダイアログ描画完了後に削除処理を開始するためのタイマー
+    Timer {
+        id: deletionDelayTimer
+        interval: 200
+        repeat: false
+        onTriggered: {
             snapshotListModel.deleteSnapshots(root.selectedSnapshots)
         }
     }
@@ -567,6 +622,7 @@ Page {
 
         Label {
             id: errorLabel
+            width: parent.width
             wrapMode: Text.WordWrap
         }
     }

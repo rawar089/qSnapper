@@ -148,11 +148,14 @@ bool SnapshotOperations::checkAuthorization(const QString &actionId)
  * @param configName Snapper設定名
  * @return Snapperインスタンスへのポインタ、失敗時はnullptr
  */
-snapper::Snapper* SnapshotOperations::getSnapper(const QString &configName)
+snapper::Snapper* SnapshotOperations::getSnapper(const QString &configName, bool forceReload)
 {
     try {
-        // 設定が変更された場合、または初回の場合は新しいSnapperインスタンスを作成
-        if (!m_snapper || m_currentConfig != configName) {
+        // 設定変更時・初回・強制リロード指定時に新しいSnapperインスタンスを作成。
+        // libsnapper の Snapper オブジェクトは構築時にスナップショット一覧を
+        // 読み込み、外部で作成された新規スナップショットを自動で取り込まないため、
+        // 一覧更新時には forceReload でインスタンスを作り直す必要がある。
+        if (!m_snapper || m_currentConfig != configName || forceReload) {
             m_snapper.reset(new snapper::Snapper(configName.toStdString(), "/"));
             m_currentConfig = configName;
         }
@@ -294,7 +297,10 @@ QString SnapshotOperations::ListSnapshots(const QString &configName)
     }
 
     try {
-        snapper::Snapper *snapper = getSnapper(configName.isEmpty() ? QStringLiteral("root") : configName);
+        // 一覧取得時は必ず再構築して外部で作成された最新スナップショットを反映する
+        snapper::Snapper *snapper = getSnapper(
+            configName.isEmpty() ? QStringLiteral("root") : configName,
+            /*forceReload=*/true);
         if (!snapper) {
             sendErrorReply(QDBusError::Failed, "Failed to initialize Snapper");
             return QString();
@@ -479,9 +485,11 @@ bool SnapshotOperations::ModifySnapshot(const QString &configName, int number,
 
 bool SnapshotOperations::DeleteSnapshot(const QString &configName, int number)
 {
-    if (!checkAuthorization("com.presire.qsnapper.delete-snapshot")) {
+    // 事前認証済み(Authenticate呼び出し済み)の場合はスキップ、未認証なら従来通り認証
+    if (!m_authenticated && !checkAuthorization("com.presire.qsnapper.delete-snapshot")) {
         return false;
     }
+    resetIdleTimer();
 
     try {
         snapper::Snapper *snapper = getSnapper(configName.isEmpty() ? QStringLiteral("root") : configName);
@@ -503,12 +511,14 @@ bool SnapshotOperations::DeleteSnapshot(const QString &configName, int number)
 #else
         snapper->deleteSnapshot(snapshot);
 #endif
+        resetIdleTimer();   // 長時間削除後もタイマーリセット
         return true;
 
     }
     catch (const snapper::Exception &e) {
         qWarning() << "Failed to delete snapshot:" << e.what();
         sendErrorReply(QDBusError::Failed, QString("Failed to delete snapshot: %1").arg(e.what()));
+        resetIdleTimer();   // 例外時もタイマーリセット
         return false;
     }
 }

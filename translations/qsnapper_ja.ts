@@ -155,6 +155,18 @@ reason=manual-test</translation>
         <source>Error</source>
         <translation>エラー</translation>
     </message>
+    <message>
+        <source>Please wait</source>
+        <translation>しばらくお待ちください</translation>
+    </message>
+    <message>
+        <source>Authentication failed.</source>
+        <translation>認証に失敗しました。</translation>
+    </message>
+    <message>
+        <source>Deleting snapshots, please wait...</source>
+        <translation>スナップショットを削除しています。しばらくお待ちください...</translation>
+    </message>
 </context>
 <context>
     <name>SnapshotItem</name>
