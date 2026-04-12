@@ -2,7 +2,6 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDir>
-#include <QDebug>
 #include <QRegularExpression>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -10,9 +9,10 @@
 #include <QDBusError>
 #include <QDBusMetaType>
 #include <QMap>
+#include <QDebug>
 #include "snapperservice.h"
 
-// QVariantMap → QMap<QString,QString> 変換ヘルパー
+// QVariantMap --> QMap<QString,QString> 変換ヘルパー
 static QMap<QString, QString> toStringMap(const QVariantMap &src)
 {
     QMap<QString, QString> out;
@@ -87,10 +87,8 @@ SnapperService* SnapperService::instance()
 /**
  * @brief D-Busサービスへの再接続を試みる
  *
- * アイドルタイムアウトでヘルパープロセスが終了した場合など、
- * D-Busインターフェースが無効になった際に呼び出す。
- * QDBusInterface を再生成することで D-Bus activation が発動し、
- * ヘルパープロセスが自動的に再起動される。
+ * アイドルタイムアウトでヘルパープロセスが終了した場合など、D-Busインターフェースが無効になった時に呼び出します。
+ * QDBusInterfaceを再生成することでD-Bus activationが発動し、ヘルパープロセスが自動的に再起動されます。
  *
  * @return 再接続に成功した場合はtrue
  */
@@ -141,36 +139,30 @@ bool SnapperService::isConfigured()
         return m_configured;
     }
 
-    QString root = targetRoot();
-    QStringList args;
-    args << "--no-dbus" << "--root" << root << "--csvout" << "list-configs"
-         << "--columns" << "config,subvolume";
-
-    bool success = false;
-    QString output = executeCommand("/usr/bin/snapper", args, success);
-
-    // 少なくとも 1 つの config が存在するかをチェック (ヘッダ行以外の行が1つ以上)
-    m_configured = false;
-    if (success) {
-        const QStringList lines = output.split('\n', Qt::SkipEmptyParts);
-        if (lines.size() >= 2) {
-            m_configured = true;
+    if (!m_dbusInterface || !m_dbusInterface->isValid()) {
+        if (!reconnect()) {
+            qCCritical(snapperLog) << "D-Bus interface is not valid; cannot check configured";
+            m_configured = false;
+            m_configuredChecked = true;
+            return false;
         }
     }
+
+    QDBusReply<bool> reply = m_dbusInterface->call("IsConfigured");
+    m_configured = reply.isValid() && reply.value();
     m_configuredChecked = true;
 
     return m_configured;
 }
 
 /**
- * @brief D-Bus 経由で利用可能な Snapper config 一覧を取得
+ * @brief D-Bus経由で利用可能なSnapper config一覧を取得
  */
 QStringList SnapperService::configs()
 {
-    // 注意: ここで遅延 refreshConfigs() を呼ぶと、プロパティゲッター評価中に
-    // configsChanged シグナルが発火し、QML 側で binding loop として検出される。
-    // 初回取得は QML の Component.onCompleted から明示的に refreshConfigs() を
-    // 呼ぶ契約とする。
+    // 注意: ここで遅延refreshConfigs()を呼ぶと、プロパティゲッター評価中に
+    // configsChangedシグナルが送信され、QML側でbinding loopとして検出される。
+    // 初回取得はQMLのComponent.onCompletedから明示的にrefreshConfigs()を呼ぶ契約とする。
     return m_configs;
 }
 
@@ -182,17 +174,21 @@ void SnapperService::refreshConfigs()
             return;
         }
     }
+
     QDBusReply<QStringList> reply = m_dbusInterface->call("ListConfigs");
+
     if (reply.isValid()) {
         m_configs = reply.value();
-    } else {
+    }
+    else {
         qCWarning(snapperLog) << "ListConfigs failed:" << reply.error().message();
         m_configs.clear();
     }
+
     m_configsChecked = true;
     emit configsChanged();
 
-    // 現在の config が一覧に無ければ先頭を採用
+    // 現在のconfigが一覧に無ければ先頭を採用
     if (!m_configs.isEmpty() && !m_configs.contains(m_currentConfig)) {
         m_currentConfig = m_configs.first();
         emit currentConfigChanged();
@@ -300,7 +296,7 @@ FsSnapshot* SnapperService::createPre(const QString &description,
 /**
  * @brief Postスナップショットを作成
  *
- * 変更後のスナップショット (Post)を作成します。
+ * 変更後のスナップショット (Post) を作成します。
  * 対応するPreスナップショットとペアになります。
  *
  * @param description スナップショットの説明
@@ -490,7 +486,7 @@ bool SnapperService::deleteSnapshot(int number)
  * @brief スナップショットを作成 (内部実装)
  *
  * D-Bus経由でスナップショットを作成します。
- * 作成成功時はsnapshotCreatedシグナル、失敗時はsnapshotCreationFailedシグナルを発行します。
+ * 作成成功時はsnapshotCreatedシグナル、失敗時はsnapshotCreationFailedシグナルを送信します。
  *
  * @param snapshotType スナップショットのタイプ
  * @param description スナップショットの説明
@@ -553,8 +549,8 @@ FsSnapshot* SnapperService::create(FsSnapshot::SnapshotType snapshotType,
 /**
  * @brief 既存スナップショットのメタデータを編集
  *
- * description / cleanup / userdata を更新します。成功時に snapshotModified シグナル、
- * 失敗時に snapshotModificationFailed シグナルを発行します。
+ * description / cleanup / userdata を更新します。
+ * 成功時にsnapshotModifiedシグナル、失敗時にsnapshotModificationFailedシグナルを送信します。
  */
 bool SnapperService::modifySnapshot(int number,
                                     const QString &description,
@@ -585,7 +581,8 @@ bool SnapperService::modifySnapshot(int number,
     const bool success = reply.value();
     if (success) {
         emit snapshotModified(number);
-    } else {
+    }
+    else {
         emit snapshotModificationFailed(number, tr("Modify operation failed."));
     }
     return success;
@@ -641,15 +638,25 @@ void SnapperService::installationHelperStep4()
  */
 void SnapperService::writeSnapperConfig()
 {
-    QStringList args;
-    args << "--no-dbus" << "set-config"
-         << "NUMBER_CLEANUP=yes"
-         << "NUMBER_LIMIT=2-10"
-         << "NUMBER_LIMIT_IMPORTANT=4-10"
-         << "TIMELINE_CREATE=no";
+    if (!m_dbusInterface || !m_dbusInterface->isValid()) {
+        if (!reconnect()) {
+            qCCritical(snapperLog) << "D-Bus interface is not valid; cannot write config";
+            return;
+        }
+    }
 
-    bool success = false;
-    executeCommand("/usr/bin/snapper", args, success);
+    QMap<QString, QString> settings;
+    settings["NUMBER_CLEANUP"] = "yes";
+    settings["NUMBER_LIMIT"] = "2-10";
+    settings["NUMBER_LIMIT_IMPORTANT"] = "4-10";
+    settings["TIMELINE_CREATE"] = "no";
+
+    QDBusReply<bool> reply = m_dbusInterface->call("WriteSnapperConfig",
+                                                    m_currentConfig,
+                                                    QVariant::fromValue(settings));
+    if (!reply.isValid() || !reply.value()) {
+        qCWarning(snapperLog) << "WriteSnapperConfig failed:" << reply.error().message();
+    }
 }
 
 /**
@@ -697,11 +704,17 @@ void SnapperService::updateEtcSysconfigYast2()
  */
 void SnapperService::setupSnapperQuota()
 {
-    QStringList args;
-    args << "--no-dbus" << "setup-quota";
+    if (!m_dbusInterface || !m_dbusInterface->isValid()) {
+        if (!reconnect()) {
+            qCCritical(snapperLog) << "D-Bus interface is not valid; cannot setup quota";
+            return;
+        }
+    }
 
-    bool success = false;
-    executeCommand("/usr/bin/snapper", args, success);
+    QDBusReply<bool> reply = m_dbusInterface->call("SetupQuota", m_currentConfig);
+    if (!reply.isValid() || !reply.value()) {
+        qCWarning(snapperLog) << "SetupQuota failed:" << reply.error().message();
+    }
 }
 
 /**

@@ -81,6 +81,19 @@
       <arg name="actionId" type="s" direction="in"/>
       <arg name="success" type="b" direction="out"/>
     </method>
+    <method name="IsConfigured">
+      <arg name="configured" type="b" direction="out"/>
+    </method>
+    <method name="WriteSnapperConfig">
+      <arg name="configName" type="s" direction="in"/>
+      <arg name="settings" type="a{ss}" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QMap&lt;QString,QString&gt;"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+    <method name="SetupQuota">
+      <arg name="configName" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
     <method name="Quit"/>
     <signal name="restoreProgress">
       <arg name="current" type="i"/>

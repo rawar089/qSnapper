@@ -48,6 +48,9 @@ public slots:
     QString GetFileDiffBetween(const QString &configName, int number1, int number2, const QString &filePath);
     bool RestoreFiles(const QString &configName, int snapshotNumber, const QStringList &filePaths, const QStringList &changeTypes);
     bool RestoreFilesDirect(const QString &configName, int snapshotNumber, const QStringList &filePaths, const QStringList &changeTypes);
+    bool IsConfigured();
+    bool WriteSnapperConfig(const QString &configName, const QMap<QString, QString> &settings);
+    bool SetupQuota(const QString &configName);
     void Quit();
 
 signals:
@@ -59,6 +62,9 @@ private:
     QString formatSnapshotToCSV(const snapper::Snapper *snapper);
     QString snapshotTypeToString(int type);
     int stringToSnapshotType(const QString &typeStr);
+
+    static bool copyRegularFile(const QString &src, const QString &dst, bool tryReflink);
+    static bool copySymlink(const QString &src, const QString &dst);
 };
 
 #endif // SNAPSHOTOPERATIONS_H

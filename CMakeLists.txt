@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(qsnapper VERSION 1.3.0 LANGUAGES CXX)
+project(qsnapper VERSION 1.3.1 LANGUAGES CXX)
 
-# Linux専用プロジェクト - 他のプラットフォームでは明示的にエラーを出す
+# Linux専用プロジェクト: 他のプラットフォームでは明示的にエラーを出す
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "qSnapper is only supported on Linux. Current platform: ${CMAKE_SYSTEM_NAME}")
 endif()
@@ -23,8 +23,8 @@ find_package(PolkitQt6-1 REQUIRED)
 
 qt6_standard_project_setup()
 
-# QTP0004: サブディレクトリ (qml/pages, qml/components) の qmldir 要求を抑制
-# NO_PLUGIN 指定でリソース埋め込みのため qmldir は不要
+# QTP0004: サブディレクトリ (qml/pages, qml/components) のqmldir要求を抑制
+# NO_PLUGIN指定でリソース埋め込みのため qmldir は不要
 qt6_policy(SET QTP0004 OLD)
 
 set(SOURCES
@@ -54,9 +54,9 @@ target_include_directories(qsnapper PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# 注: NO_IMPORT_SCAN は共有ライブラリ Qt 向け。
-# QML プラグインは実行時にロードされるため finalize 段でのスキャン/リンクは不要。
-# 静的 Qt ビルドに切り替える場合はこのオプションを外すこと。
+# 注意: NO_IMPORT_SCANは共有ライブラリQt向け
+# QMLプラグインは実行時にロードされるため、finalize段でのスキャン/リンクは不要
+# 静的Qtビルドに切り替える場合はこのオプションを外すこと
 qt6_add_qml_module(qsnapper
     URI QSnapper
     VERSION 1.0
@@ -140,6 +140,7 @@ target_link_libraries(qsnapper-dbus-service PRIVATE
     Qt6::DBus
     PolkitQt6-1::Core
     snapper
+    btrfsutil
 )
 
 # libsnapperバージョン検出 (Version.hから抽出)
