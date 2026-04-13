@@ -177,7 +177,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_BUILD_TYPE=Release \
             -DENABLE_SELINUX=OFF
-        run: |
+          cmake --build build
           cd build
           cpack -G DEB
 
