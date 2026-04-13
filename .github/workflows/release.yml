@@ -43,7 +43,7 @@ jobs:
             qt6-base-devel qt6-declarative-devel \
             qt6-quickcontrols2-devel qt6-linguist-devel \
             polkit-devel libpolkit-qt6-1-devel libsnapper-devel \
-            selinux-policy-devel
+            libbtrfsutil-devel selinux-policy-devel
 
       - name: Build
         run: |
@@ -70,6 +70,49 @@ jobs:
           name: qsnapper-${{ needs.validate.outputs.version }}-leap16.x86_64.rpm
           path: build/*.rpm
 
+  build-rpm-tumbleweed:
+    needs: validate
+    runs-on: ubuntu-latest
+    container:
+      image: opensuse/tumbleweed:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          zypper --non-interactive refresh
+          zypper --non-interactive install -y \
+            cmake gcc-c++ rpm-build \
+            qt6-base-devel qt6-declarative-devel \
+            qt6-quickcontrols2-devel qt6-linguist-devel \
+            polkit-devel libpolkit-qt6-1-devel libsnapper-devel \
+            libbtrfsutil-devel selinux-policy-devel
+
+      - name: Build
+        run: |
+          cmake -B build \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_SELINUX=ON
+          cmake --build build --parallel $(nproc)
+
+      - name: Package RPM
+        run: |
+          cd build
+          cpack -G RPM
+
+      - name: Rename artifact
+        run: |
+          cd build
+          for f in *.rpm; do
+            mv "$f" "qsnapper-${{ needs.validate.outputs.version }}-tumbleweed.x86_64.rpm"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qsnapper-${{ needs.validate.outputs.version }}-tumbleweed.x86_64.rpm
+          path: build/*.rpm
+
   build-rpm-fedora:
     needs: validate
     runs-on: ubuntu-latest
@@ -85,7 +128,7 @@ jobs:
             qt6-qtbase-devel qt6-qtdeclarative-devel \
             qt6-qttools-devel \
             polkit-devel polkit-qt6-1-devel snapper-devel \
-            selinux-policy-devel
+            btrfs-progs-devel selinux-policy-devel
 
       - name: Build
         run: |
@@ -126,16 +169,14 @@ jobs:
           apt-get install -y --no-install-recommends \
             cmake make g++ pkg-config file dpkg-dev \
             qt6-base-dev qt6-declarative-dev qt6-tools-dev \
-            libpolkit-qt6-1-dev libsnapper-dev libboost-dev
+            libpolkit-qt6-1-dev libsnapper-dev libboost-dev libbtrfs-dev
 
       - name: Build
         run: |
           cmake -B build \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --parallel $(nproc)
-
-      - name: Package DEB
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_SELINUX=OFF
         run: |
           cd build
           cpack -G DEB
@@ -153,7 +194,7 @@ jobs:
           path: build/*.deb
 
   release:
-    needs: [validate, build-rpm-opensuse, build-rpm-fedora, build-deb]
+    needs: [validate, build-rpm-opensuse, build-rpm-tumbleweed, build-rpm-fedora, build-deb]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
