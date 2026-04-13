@@ -590,7 +590,7 @@ QStringList SnapshotOperations::ListConfigs()
         std::list<snapper::ConfigInfo> configList = snapper::Snapper::getConfigs("/");
         QStringList configs;
         for (const auto &ci : configList) {
-            configs.append(QString::fromStdString(ci.getConfigName()));
+            configs.append(QString::fromStdString(ci.get_config_name()));
         }
         return configs;
     }

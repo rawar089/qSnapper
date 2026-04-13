@@ -117,7 +117,7 @@ Confirm snapshot deletion with a safety dialog that shows which snapshot will be
 sudo zypper install cmake gcc-c++ \
                     qt6-base-devel qt6-declarative-devel qt6-quickcontrols2-devel qt6-linguist-devel \
                     polkit-devel libpolkit-qt6-1-devel \
-                    libsnapper-devel
+                    libsnapper-devel libbtrfsutil-devel
 ```
 
 **RHEL 9 / 10**
@@ -126,7 +126,7 @@ sudo zypper install cmake gcc-c++ \
 sudo dnf install cmake gcc-c++ \
                  qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtquickcontrols2-devel qt6-linguist-devel \
                  polkit-devel polkit-qt6-1-devel \
-                 snapper-devel
+                 snapper-devel btrfs-progs-devel
 ```
 
 #### 2. Build and Install
